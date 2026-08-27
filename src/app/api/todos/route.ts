@@ -82,6 +82,7 @@ export async function POST(req: Request) {
         category: input.category ?? "personal",
         dueDate: toNullableDate(input.dueDate) ?? null,
         reminderAt: toNullableDate(input.reminderAt) ?? null,
+        repeat: input.repeat ?? "none",
       },
     });
     return json(serializeTodo(todo), 201);

@@ -132,7 +132,7 @@ function StatChip({
 }) {
   return (
     <div
-      className="rounded-2xl border bg-card px-2 py-3 text-center shadow-sm"
+      className="rounded-2xl border bg-card px-2 py-3 text-center shadow-card"
       title={title}
     >
       <p className="text-xl font-bold tabular-nums sm:text-2xl">{value}</p>
@@ -179,7 +179,7 @@ function TimelineRow({
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-2xl border bg-card shadow-sm transition-colors",
+        "press overflow-hidden rounded-2xl border bg-card shadow-card transition-colors",
         isCurrent && "border-primary/40"
       )}
     >
@@ -531,7 +531,7 @@ export function DiaryView() {
           )}
 
           {/* ── Entry editor ── */}
-          <Card className="rounded-2xl py-0 shadow-sm">
+          <Card className="rounded-2xl py-0 shadow-card">
             <CardContent className="p-4 sm:p-6">
               {/* Date navigation */}
               <div className="flex items-center gap-1.5">
@@ -738,7 +738,7 @@ export function DiaryView() {
               <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                 Past entries
               </h2>
-              <div className="space-y-5">
+              <div className="stagger-list space-y-5">
                 {timeline.map((group) => (
                   <div key={group.month}>
                     <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">

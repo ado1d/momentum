@@ -1,0 +1,1118 @@
+     1→"use client";
+     2→
+     3→import * as React from "react";
+     4→import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+     5→import {
+     6→  Bell,
+     7→  CalendarCheck,
+     8→  CalendarClock,
+     9→  CalendarDays,
+    10→  Check,
+    11→  CheckCircle2,
+    12→  ChevronDown,
+    13→  Clock,
+    14→  CloudOff,
+    15→  FileText,
+    16→  ListTodo,
+    17→  Loader2,
+    18→  MoreVertical,
+    19→  Pencil,
+    20→  Plus,
+    21→  Trash2,
+    22→  type LucideIcon,
+    23→} from "lucide-react";
+    24→import { toast } from "sonner";
+    25→import { todosApi } from "@/lib/api";
+    26→import {
+    27→  addDaysToKey,
+    28→  dateToKey,
+    29→  formatDueLabel,
+    30→  hasTime,
+    31→  isOverdue,
+    32→  todayKey,
+    33→} from "@/lib/dates";
+    34→import {
+    35→  PRIORITIES,
+    36→  TODO_CATEGORIES,
+    37→  type Priority,
+    38→  type Todo,
+    39→  type TodoInput,
+    40→} from "@/lib/types";
+    41→import {
+    42→  AlertDialog,
+    43→  AlertDialogAction,
+    44→  AlertDialogCancel,
+    45→  AlertDialogContent,
+    46→  AlertDialogDescription,
+    47→  AlertDialogFooter,
+    48→  AlertDialogHeader,
+    49→  AlertDialogTitle,
+    50→} from "@/components/ui/alert-dialog";
+    51→import { Button } from "@/components/ui/button";
+    52→import {
+    53→  Dialog,
+    54→  DialogContent,
+    55→  DialogDescription,
+    56→  DialogFooter,
+    57→  DialogHeader,
+    58→  DialogTitle,
+    59→} from "@/components/ui/dialog";
+    60→import {
+    61→  DropdownMenu,
+    62→  DropdownMenuContent,
+    63→  DropdownMenuItem,
+    64→  DropdownMenuTrigger,
+    65→} from "@/components/ui/dropdown-menu";
+    66→import { Input } from "@/components/ui/input";
+    67→import {
+    68→  Select,
+    69→  SelectContent,
+    70→  SelectItem,
+    71→  SelectTrigger,
+    72→  SelectValue,
+    73→} from "@/components/ui/select";
+    74→import { Skeleton } from "@/components/ui/skeleton";
+    75→import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    76→import { Textarea } from "@/components/ui/textarea";
+    77→import { CategoryBadge, PriorityBadge } from "@/components/app/shared/badges";
+    78→import { EmptyState } from "@/components/app/shared/empty-state";
+    79→import { ViewHeader } from "@/components/app/shared/view-header";
+    80→import { cn } from "@/lib/utils";
+    81→
+    82→type TabValue = "all" | "today" | "upcoming" | "overdue" | "completed";
+    83→type DueChoice = "none" | "today" | "tomorrow";
+    84→
+    85→const TABS: { value: TabValue; label: string }[] = [
+    86→  { value: "all", label: "All" },
+    87→  { value: "today", label: "Today" },
+    88→  { value: "upcoming", label: "Upcoming" },
+    89→  { value: "overdue", label: "Overdue" },
+    90→  { value: "completed", label: "Completed" },
+    91→];
+    92→
+    93→const PRIORITY_CYCLE: Priority[] = ["low", "medium", "high", "urgent"];
+    94→const DUE_CYCLE: DueChoice[] = ["none", "today", "tomorrow"];
+    95→
+    96→const priorityChipStyles: Record<Priority, string> = {
+    97→  low: "border-border bg-muted/50 text-muted-foreground",
+    98→  medium:
+    99→    "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+   100→  high: "border-orange-500/40 bg-orange-500/10 text-orange-700 dark:text-orange-300",
+   101→  urgent: "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300",
+   102→};
+   103→
+   104→const EMPTY_BY_TAB: Record<
+   105→  TabValue,
+   106→  { icon: LucideIcon; title: string; description: string }
+   107→> = {
+   108→  all: {
+   109→    icon: ListTodo,
+   110→    title: "No tasks yet",
+   111→    description: "Capture what's on your mind — small steps count double.",
+   112→  },
+   113→  today: {
+   114→    icon: CalendarCheck,
+   115→    title: "Nothing due today",
+   116→    description: "Your slate is clear. Add a task for today or plan ahead.",
+   117→  },
+   118→  upcoming: {
+   119→    icon: CalendarClock,
+   120→    title: "Nothing upcoming",
+   121→    description: "No tasks scheduled for the days ahead. Enjoy the calm.",
+   122→  },
+   123→  overdue: {
+   124→    icon: CheckCircle2,
+   125→    title: "Nothing overdue",
+   126→    description: "You're all caught up — great job staying on top of things.",
+   127→  },
+   128→  completed: {
+   129→    icon: CheckCircle2,
+   130→    title: "Nothing completed yet",
+   131→    description: "Check off your first task and it will show up here.",
+   132→  },
+   133→};
+   134→
+   135→/** Local calendar-day key of a due/completed ISO timestamp (null when unset). */
+   136→function isoDayKey(iso: string | null): string | null {
+   137→  if (!iso) return null;
+   138→  const d = new Date(iso);
+   139→  return Number.isNaN(d.getTime()) ? null : dateToKey(d);
+   140→}
+   141→
+   142→function dueDayKey(todo: Todo): string | null {
+   143→  return isoDayKey(todo.dueDate);
+   144→}
+   145→
+   146→/** Turn a local day key (+ optional "HH:MM") into a real ISO instant. */
+   147→function localDateKeyToIso(key: string, time = "00:00"): string {
+   148→  const [y, mo, d] = key.split("-").map(Number);
+   149→  const [h, mi] = time.split(":").map(Number);
+   150→  return new Date(y, (mo ?? 1) - 1, d ?? 1, h ?? 0, mi ?? 0).toISOString();
+   151→}
+   152→
+   153→function toTimeInputValue(d: Date): string {
+   154→  const pad = (n: number) => String(n).padStart(2, "0");
+   155→  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+   156→}
+   157→
+   158→/** ISO instant -> "YYYY-MM-DDTHH:MM" (local) for datetime-local inputs. */
+   159→function isoToLocalInputValue(iso: string): string {
+   160→  const d = new Date(iso);
+   161→  if (Number.isNaN(d.getTime())) return "";
+   162→  const pad = (n: number) => String(n).padStart(2, "0");
+   163→  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+   164→}
+   165→
+   166→function matchesTab(todo: Todo, tab: TabValue, today: string): boolean {
+   167→  const key = dueDayKey(todo);
+   168→  switch (tab) {
+   169→    case "all":
+   170→      return true;
+   171→    case "today":
+   172→      return todo.completed
+   173→        ? isoDayKey(todo.completedAt) === today
+   174→        : key === today;
+   175→    case "upcoming":
+   176→      return !todo.completed && !!key && key > today;
+   177→    case "overdue":
+   178→      return !todo.completed && !!key && key < today;
+   179→    case "completed":
+   180→      return todo.completed;
+   181→  }
+   182→}
+   183→
+   184→function TasksSkeleton() {
+   185→  return (
+   186→    <div className="space-y-3" aria-busy="true" aria-label="Loading tasks">
+   187→      <Skeleton className="h-24 rounded-2xl" />
+   188→      <Skeleton className="h-10 w-full rounded-xl" />
+   189→      <Skeleton className="h-8 w-64 rounded-full" />
+   190→      <Skeleton className="h-72 rounded-2xl" />
+   191→    </div>
+   192→  );
+   193→}
+   194→
+   195→function CategoryChip({
+   196→  label,
+   197→  active,
+   198→  onClick,
+   199→}: {
+   200→  label: string;
+   201→  active: boolean;
+   202→  onClick: () => void;
+   203→}) {
+   204→  return (
+   205→    <button
+   206→      type="button"
+   207→      onClick={onClick}
+   208→      aria-pressed={active}
+   209→      className={cn(
+   210→        "h-8 shrink-0 rounded-full border px-3 text-xs font-medium transition-colors",
+   211→        active
+   212→          ? "border-primary bg-primary text-primary-foreground shadow-sm"
+   213→          : "border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
+   214→      )}
+   215→    >
+   216→      {label}
+   217→    </button>
+   218→  );
+   219→}
+   220→
+   221→function GroupLabel({
+   222→  label,
+   223→  count,
+   224→  danger,
+   225→}: {
+   226→  label: string;
+   227→  count: number;
+   228→  danger?: boolean;
+   229→}) {
+   230→  return (
+   231→    <div
+   232→      className={cn(
+   233→        "sticky top-16 z-10 flex items-center justify-between gap-2 border-b px-3 py-1 backdrop-blur sm:px-4 lg:top-0",
+   234→        danger
+   235→          ? "border-destructive/20 bg-destructive/[0.06]"
+   236→          : "border-border/70 bg-card/95"
+   237→      )}
+   238→    >
+   239→      <h3
+   240→        className={cn(
+   241→          "py-0.5 text-xs font-semibold uppercase tracking-wider",
+   242→          danger ? "text-destructive" : "text-muted-foreground"
+   243→        )}
+   244→      >
+   245→        {label}
+   246→      </h3>
+   247→      <span className="text-xs font-medium tabular-nums text-muted-foreground/70">
+   248→        {count}
+   249→      </span>
+   250→    </div>
+   251→  );
+   252→}
+   253→
+   254→function TodoRow({
+   255→  todo,
+   256→  onToggle,
+   257→  onEdit,
+   258→  onDelete,
+   259→}: {
+   260→  todo: Todo;
+   261→  onToggle: (todo: Todo) => void;
+   262→  onEdit: (todo: Todo) => void;
+   263→  onDelete: (todo: Todo) => void;
+   264→}) {
+   265→  const today = todayKey();
+   266→  const key = dueDayKey(todo);
+   267→  const overdue = !todo.completed && !!key && key < today;
+   268→  const dueToday = !todo.completed && key === today;
+   269→
+   270→  return (
+   271→    <div
+   272→      className={cn(
+   273→        "flex items-start gap-2.5 px-3 py-2.5 sm:gap-3 sm:px-4 sm:py-3",
+   274→        overdue && "bg-destructive/[0.03]"
+   275→      )}
+   276→    >
+   277→      <button
+   278→        type="button"
+   279→        role="checkbox"
+   280→        aria-checked={todo.completed}
+   281→        aria-label={`${todo.completed ? "Mark" : "Complete"} "${todo.title}"`}
+   282→        onClick={() => onToggle(todo)}
+   283→        className={cn(
+   284→          "relative mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200 active:scale-75",
+   285→          todo.completed
+   286→            ? "border-primary bg-primary text-primary-foreground shadow-sm"
+   287→            : "border-muted-foreground/30 hover:border-primary/60 hover:bg-primary/10"
+   288→        )}
+   289→      >
+   290→        <Check
+   291→          className={cn(
+   292→            "size-3.5 transition-all duration-200",
+   293→            todo.completed ? "scale-100 opacity-100" : "scale-50 opacity-0"
+   294→          )}
+   295→          strokeWidth={3}
+   296→          aria-hidden="true"
+   297→        />
+   298→        <span className="absolute -inset-2.5" aria-hidden="true" />
+   299→      </button>
+   300→
+   301→      <div className="min-w-0 flex-1">
+   302→        <p
+   303→          className={cn(
+   304→            "break-words text-sm font-medium leading-snug decoration-2 transition-colors duration-300",
+   305→            "line-through",
+   306→            todo.completed
+   307→              ? "text-muted-foreground/70 decoration-muted-foreground/50"
+   308→              : "text-foreground decoration-transparent"
+   309→          )}
+   310→        >
+   311→          {todo.title}
+   312→        </p>
+   313→        {todo.notes && (
+   314→          <p className="mt-0.5 flex items-start gap-1 text-xs leading-snug text-muted-foreground/80">
+   315→            <FileText className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
+   316→            <span className="line-clamp-1">{todo.notes}</span>
+   317→          </p>
+   318→        )}
+   319→        <div
+   320→          className={cn(
+   321→            "mt-1.5 flex flex-wrap items-center gap-1.5",
+   322→            todo.completed && "opacity-60"
+   323→          )}
+   324→        >
+   325→          <PriorityBadge priority={todo.priority} />
+   326→          <CategoryBadge category={todo.category} />
+   327→          {todo.dueDate && (
+   328→            <span
+   329→              className={cn(
+   330→                "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium tabular-nums",
+   331→                overdue
+   332→                  ? "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300"
+   333→                  : dueToday
+   334→                    ? "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+   335→                    : "border-border bg-muted/50 text-muted-foreground"
+   336→              )}
+   337→            >
+   338→              <Clock className="size-3" aria-hidden="true" />
+   339→              {formatDueLabel(todo.dueDate)}
+   340→            </span>
+   341→          )}
+   342→          {todo.reminderAt && (
+   343→            <span
+   344→              className="inline-flex items-center gap-1 text-muted-foreground/70"
+   345→              title={`Reminder: ${formatDueLabel(todo.reminderAt)}`}
+   346→            >
+   347→              <Bell className="size-3" aria-hidden="true" />
+   348→              <span className="sr-only">Reminder set</span>
+   349→            </span>
+   350→          )}
+   351→        </div>
+   352→      </div>
+   353→
+   354→      <DropdownMenu>
+   355→        <DropdownMenuTrigger asChild>
+   356→          <Button
+   357→            variant="ghost"
+   358→            size="icon"
+   359→            aria-label={`Actions for ${todo.title}`}
+   360→            className="-my-2 size-11 shrink-0 rounded-xl text-muted-foreground hover:text-foreground sm:-mr-2"
+   361→          >
+   362→            <MoreVertical className="size-4" aria-hidden="true" />
+   363→          </Button>
+   364→        </DropdownMenuTrigger>
+   365→        <DropdownMenuContent align="end" className="w-40">
+   366→          <DropdownMenuItem onSelect={() => onEdit(todo)}>
+   367→            <Pencil className="size-4" aria-hidden="true" />
+   368→            Edit
+   369→          </DropdownMenuItem>
+   370→          <DropdownMenuItem
+   371→            variant="destructive"
+   372→            onSelect={() => onDelete(todo)}
+   373→          >
+   374→            <Trash2 className="size-4" aria-hidden="true" />
+   375→            Delete
+   376→          </DropdownMenuItem>
+   377→        </DropdownMenuContent>
+   378→      </DropdownMenu>
+   379→    </div>
+   380→  );
+   381→}
+   382→
+   383→function EditTaskDialog({
+   384→  todo,
+   385→  saving,
+   386→  onCancel,
+   387→  onSave,
+   388→}: {
+   389→  todo: Todo;
+   390→  saving: boolean;
+   391→  onCancel: () => void;
+   392→  onSave: (patch: Partial<TodoInput>) => void;
+   393→}) {
+   394→  const [title, setTitle] = React.useState(todo.title);
+   395→  const [notes, setNotes] = React.useState(todo.notes ?? "");
+   396→  const [priority, setPriority] = React.useState<Priority>(todo.priority);
+   397→  const [category, setCategory] = React.useState(todo.category);
+   398→  const [dueDate, setDueDate] = React.useState(() => {
+   399→    if (!todo.dueDate) return "";
+   400→    const d = new Date(todo.dueDate);
+   401→    return Number.isNaN(d.getTime()) ? "" : dateToKey(d);
+   402→  });
+   403→  const [dueTime, setDueTime] = React.useState(() => {
+   404→    if (!todo.dueDate || !hasTime(todo.dueDate)) return "";
+   405→    const d = new Date(todo.dueDate);
+   406→    return Number.isNaN(d.getTime()) ? "" : toTimeInputValue(d);
+   407→  });
+   408→  const [reminder, setReminder] = React.useState(() =>
+   409→    todo.reminderAt ? isoToLocalInputValue(todo.reminderAt) : ""
+   410→  );
+   411→
+   412→  const save = () => {
+   413→    const trimmed = title.trim();
+   414→    if (!trimmed) {
+   415→      toast.error("Give the task a title");
+   416→      return;
+   417→    }
+   418→    const dueIso = dueDate
+   419→      ? localDateKeyToIso(dueDate, dueTime || "00:00")
+   420→      : null;
+   421→    const reminderIso = reminder ? new Date(reminder).toISOString() : null;
+   422→    onSave({
+   423→      title: trimmed,
+   424→      notes: notes.trim() || null,
+   425→      priority,
+   426→      category,
+   427→      dueDate: dueIso,
+   428→      reminderAt: reminderIso,
+   429→    });
+   430→  };
+   431→
+   432→  const labelClass = "text-xs font-medium text-muted-foreground";
+   433→
+   434→  return (
+   435→    <Dialog
+   436→      open
+   437→      onOpenChange={(open) => {
+   438→        if (!open) onCancel();
+   439→      }}
+   440→    >
+   441→      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+   442→        <DialogHeader>
+   443→          <DialogTitle>Edit task</DialogTitle>
+   444→          <DialogDescription>
+   445→            Update the details of your task.
+   446→          </DialogDescription>
+   447→        </DialogHeader>
+   448→
+   449→        <div className="space-y-4">
+   450→          <div className="space-y-1.5">
+   451→            <label htmlFor="edit-title" className={labelClass}>
+   452→              Title
+   453→            </label>
+   454→            <Input
+   455→              id="edit-title"
+   456→              value={title}
+   457→              autoFocus
+   458→              onChange={(e) => setTitle(e.target.value)}
+   459→            />
+   460→          </div>
+   461→
+   462→          <div className="space-y-1.5">
+   463→            <label htmlFor="edit-notes" className={labelClass}>
+   464→              Notes
+   465→            </label>
+   466→            <Textarea
+   467→              id="edit-notes"
+   468→              rows={3}
+   469→              placeholder="Add notes (optional)"
+   470→              value={notes}
+   471→              onChange={(e) => setNotes(e.target.value)}
+   472→            />
+   473→          </div>
+   474→
+   475→          <div className="grid grid-cols-2 gap-3">
+   476→            <div className="space-y-1.5">
+   477→              <label htmlFor="edit-priority" className={labelClass}>
+   478→                Priority
+   479→              </label>
+   480→              <Select
+   481→                value={priority}
+   482→                onValueChange={(v) => setPriority(v as Priority)}
+   483→              >
+   484→                <SelectTrigger id="edit-priority" className="w-full">
+   485→                  <SelectValue />
+   486→                </SelectTrigger>
+   487→                <SelectContent>
+   488→                  {PRIORITIES.map((p) => (
+   489→                    <SelectItem key={p.value} value={p.value}>
+   490→                      {p.label}
+   491→                    </SelectItem>
+   492→                  ))}
+   493→                </SelectContent>
+   494→              </Select>
+   495→            </div>
+   496→            <div className="space-y-1.5">
+   497→              <label htmlFor="edit-category" className={labelClass}>
+   498→                Category
+   499→              </label>
+   500→              <Select value={category} onValueChange={setCategory}>
+   501→                <SelectTrigger id="edit-category" className="w-full">
+   502→                  <SelectValue />
+   503→                </SelectTrigger>
+   504→                <SelectContent>
+   505→                  {TODO_CATEGORIES.map((c) => (
+   506→                    <SelectItem key={c.value} value={c.value}>
+   507→                      {c.emoji} {c.label}
+   508→                    </SelectItem>
+   509→                  ))}
+   510→                </SelectContent>
+   511→              </Select>
+   512→            </div>
+   513→          </div>
+   514→
+   515→          <div className="grid grid-cols-2 gap-3">
+   516→            <div className="space-y-1.5">
+   517→              <label htmlFor="edit-due-date" className={labelClass}>
+   518→                Due date
+   519→              </label>
+   520→              <Input
+   521→                id="edit-due-date"
+   522→                type="date"
+   523→                value={dueDate}
+   524→                onChange={(e) => setDueDate(e.target.value)}
+   525→              />
+   526→            </div>
+   527→            <div className="space-y-1.5">
+   528→              <label htmlFor="edit-due-time" className={labelClass}>
+   529→                Time (optional)
+   530→              </label>
+   531→              <Input
+   532→                id="edit-due-time"
+   533→                type="time"
+   534→                value={dueTime}
+   535→                onChange={(e) => setDueTime(e.target.value)}
+   536→              />
+   537→            </div>
+   538→          </div>
+   539→
+   540→          <div className="space-y-1.5">
+   541→            <label htmlFor="edit-reminder" className={labelClass}>
+   542→              Reminder
+   543→            </label>
+   544→            <Input
+   545→              id="edit-reminder"
+   546→              type="datetime-local"
+   547→              value={reminder}
+   548→              onChange={(e) => setReminder(e.target.value)}
+   549→            />
+   550→            <p className="text-[11px] text-muted-foreground/70">
+   551→              Clear the fields to remove the due date or reminder.
+   552→            </p>
+   553→          </div>
+   554→        </div>
+   555→
+   556→        <DialogFooter>
+   557→          <Button variant="outline" onClick={onCancel}>
+   558→            Cancel
+   559→          </Button>
+   560→          <Button onClick={save} disabled={saving}>
+   561→            {saving && (
+   562→              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+   563→            )}
+   564→            Save changes
+   565→          </Button>
+   566→        </DialogFooter>
+   567→      </DialogContent>
+   568→    </Dialog>
+   569→  );
+   570→}
+   571→
+   572→export function TasksView() {
+   573→  const queryClient = useQueryClient();
+   574→  const quickAddRef = React.useRef<HTMLInputElement>(null);
+   575→
+   576→  // Full list (active + completed) fetched once; filtering happens client-side.
+   577→  // Note: api.ts strips status "all" (no param), and the backend then defaults
+   578→  // to active-only — so we explicitly fetch both halves and merge them.
+   579→  // Key is ["todos", "full"] because ["todos", "all"] is owned by the
+   580→  // notification engine / bell menu (status "active").
+   581→  const { data: todos = [], isLoading, isError, refetch } = useQuery({
+   582→    queryKey: ["todos", "full"],
+   583→    queryFn: async () => {
+   584→      const [active, completed] = await Promise.all([
+   585→        todosApi.list({ status: "active" }),
+   586→        todosApi.list({ status: "completed" }),
+   587→      ]);
+   588→      return [...active, ...completed];
+   589→    },
+   590→  });
+   591→
+   592→  const [tab, setTab] = React.useState<TabValue>("all");
+   593→  const [category, setCategory] = React.useState<string>("all");
+   594→  const [quickTitle, setQuickTitle] = React.useState("");
+   595→  const [quickPriority, setQuickPriority] = React.useState<Priority>("medium");
+   596→  const [quickDue, setQuickDue] = React.useState<DueChoice>("today");
+   597→  const [editing, setEditing] = React.useState<Todo | null>(null);
+   598→  const [deleting, setDeleting] = React.useState<Todo | null>(null);
+   599→  const [clearOpen, setClearOpen] = React.useState(false);
+   600→  const [completedOpen, setCompletedOpen] = React.useState(false);
+   601→
+   602→  const invalidate = React.useCallback(() => {
+   603→    void queryClient.invalidateQueries({ queryKey: ["todos"] });
+   604→    void queryClient.invalidateQueries({ queryKey: ["stats"] });
+   605→  }, [queryClient]);
+   606→
+   607→  const createMutation = useMutation({
+   608→    mutationFn: (input: TodoInput) => todosApi.create(input),
+   609→    onSuccess: () => {
+   610→      invalidate();
+   611→      toast.success("Task added");
+   612→    },
+   613→    onError: (e) =>
+   614→      toast.error(e instanceof Error ? e.message : "Couldn't add the task"),
+   615→  });
+   616→
+   617→  const toggleMutation = useMutation({
+   618→    mutationFn: (todo: Todo) =>
+   619→      todosApi.update(todo.id, { completed: !todo.completed }),
+   620→    onMutate: async (todo) => {
+   621→      await queryClient.cancelQueries({ queryKey: ["todos", "full"] });
+   622→      const prev = queryClient.getQueryData<Todo[]>(["todos", "full"]);
+   623→      if (prev) {
+   624→        queryClient.setQueryData<Todo[]>(
+   625→          ["todos", "full"],
+   626→          prev.map((t) =>
+   627→            t.id === todo.id
+   628→              ? {
+   629→                  ...t,
+   630→                  completed: !t.completed,
+   631→                  completedAt: !todo.completed
+   632→                    ? new Date().toISOString()
+   633→                    : null,
+   634→                }
+   635→              : t
+   636→          )
+   637→        );
+   638→      }
+   639→      return { prev };
+   640→    },
+   641→    onError: (_e, _todo, ctx) => {
+   642→      if (ctx?.prev) {
+   643→        queryClient.setQueryData(["todos", "full"], ctx.prev);
+   644→      }
+   645→      toast.error("Couldn't update the task");
+   646→    },
+   647→    onSettled: invalidate,
+   648→  });
+   649→
+   650→  const updateMutation = useMutation({
+   651→    mutationFn: (args: { id: string; patch: Partial<TodoInput> }) =>
+   652→      todosApi.update(args.id, args.patch),
+   653→    onSuccess: () => {
+   654→      invalidate();
+   655→      setEditing(null);
+   656→      toast.success("Task updated");
+   657→    },
+   658→    onError: (e) =>
+   659→      toast.error(e instanceof Error ? e.message : "Couldn't update the task"),
+   660→  });
+   661→
+   662→  const deleteMutation = useMutation({
+   663→    mutationFn: (id: string) => todosApi.remove(id),
+   664→    onMutate: async (id) => {
+   665→      await queryClient.cancelQueries({ queryKey: ["todos", "full"] });
+   666→      const prev = queryClient.getQueryData<Todo[]>(["todos", "full"]);
+   667→      if (prev) {
+   668→        queryClient.setQueryData<Todo[]>(
+   669→          ["todos", "full"],
+   670→          prev.filter((t) => t.id !== id)
+   671→        );
+   672→      }
+   673→      return { prev };
+   674→    },
+   675→    onError: (_e, _id, ctx) => {
+   676→      if (ctx?.prev) {
+   677→        queryClient.setQueryData(["todos", "full"], ctx.prev);
+   678→      }
+   679→      toast.error("Couldn't delete the task");
+   680→    },
+   681→    onSuccess: () => {
+   682→      invalidate();
+   683→      setDeleting(null);
+   684→      toast.success("Task deleted");
+   685→    },
+   686→  });
+   687→
+   688→  const clearMutation = useMutation({
+   689→    mutationFn: () => todosApi.clearCompleted(),
+   690→    onSuccess: () => {
+   691→      invalidate();
+   692→      setClearOpen(false);
+   693→      toast.success("Completed tasks cleared");
+   694→    },
+   695→    onError: () => toast.error("Couldn't clear completed tasks"),
+   696→  });
+   697→
+   698→  const today = todayKey();
+   699→  const tomorrow = addDaysToKey(today, 1);
+   700→
+   701→  const doneTodayCount = todos.filter(
+   702→    (t) => t.completed && isoDayKey(t.completedAt) === today
+   703→  ).length;
+   704→  const overdueCount = todos.filter(
+   705→    (t) => !t.completed && isOverdue(t.dueDate)
+   706→  ).length;
+   707→  const completedTotal = todos.filter((t) => t.completed).length;
+   708→
+   709→  const filtered = React.useMemo(
+   710→    () =>
+   711→      todos.filter(
+   712→        (t) =>
+   713→          matchesTab(t, tab, today) &&
+   714→          (category === "all" || t.category === category)
+   715→      ),
+   716→    [todos, tab, category, today]
+   717→  );
+   718→
+   719→  const activeTodos = React.useMemo(
+   720→    () => filtered.filter((t) => !t.completed),
+   721→    [filtered]
+   722→  );
+   723→
+   724→  const completedTodos = React.useMemo(
+   725→    () =>
+   726→      filtered
+   727→        .filter((t) => t.completed)
+   728→        .sort((a, b) =>
+   729→          (b.completedAt ?? "").localeCompare(a.completedAt ?? "")
+   730→        ),
+   731→    [filtered]
+   732→  );
+   733→
+   734→  const visibleGroups = React.useMemo(() => {
+   735→    const buckets: Record<
+   736→      "overdue" | "today" | "tomorrow" | "upcoming" | "nodate",
+   737→      Todo[]
+   738→    > = {
+   739→      overdue: [],
+   740→      today: [],
+   741→      tomorrow: [],
+   742→      upcoming: [],
+   743→      nodate: [],
+   744→    };
+   745→    for (const t of activeTodos) {
+   746→      const key = dueDayKey(t);
+   747→      if (key === null) buckets.nodate.push(t);
+   748→      else if (key < today) buckets.overdue.push(t);
+   749→      else if (key === today) buckets.today.push(t);
+   750→      else if (key === tomorrow) buckets.tomorrow.push(t);
+   751→      else buckets.upcoming.push(t);
+   752→    }
+   753→    return [
+   754→      { id: "overdue", label: "Overdue", tone: "danger" as const, items: buckets.overdue },
+   755→      { id: "today", label: "Today", tone: "default" as const, items: buckets.today },
+   756→      { id: "tomorrow", label: "Tomorrow", tone: "default" as const, items: buckets.tomorrow },
+   757→      { id: "upcoming", label: "Upcoming", tone: "default" as const, items: buckets.upcoming },
+   758→      { id: "nodate", label: "No date", tone: "default" as const, items: buckets.nodate },
+   759→    ].filter((g) => g.items.length > 0);
+   760→  }, [activeTodos, today, tomorrow]);
+   761→
+   762→  const submitQuickAdd = () => {
+   763→    const title = quickTitle.trim();
+   764→    if (!title) {
+   765→      quickAddRef.current?.focus();
+   766→      return;
+   767→    }
+   768→    if (createMutation.isPending) return;
+   769→    const dueDate =
+   770→      quickDue === "none"
+   771→        ? null
+   772→        : localDateKeyToIso(quickDue === "today" ? today : tomorrow);
+   773→    createMutation.mutate(
+   774→      { title, priority: quickPriority, dueDate },
+   775→      {
+   776→        onSuccess: () => {
+   777→          setQuickTitle("");
+   778→          quickAddRef.current?.focus();
+   779→        },
+   780→      }
+   781→    );
+   782→  };
+   783→
+   784→  const cyclePriority = () =>
+   785→    setQuickPriority(
+   786→      (p) =>
+   787→        PRIORITY_CYCLE[(PRIORITY_CYCLE.indexOf(p) + 1) % PRIORITY_CYCLE.length]
+   788→    );
+   789→
+   790→  const cycleDue = () =>
+   791→    setQuickDue(
+   792→      (d) => DUE_CYCLE[(DUE_CYCLE.indexOf(d) + 1) % DUE_CYCLE.length]
+   793→    );
+   794→
+   795→  const completedShown = completedTodos.length > 0 || tab === "completed";
+   796→  const completedExpanded = tab === "completed" || completedOpen;
+   797→  const hasAnyTodos = todos.length > 0;
+   798→
+   799→  const empty = EMPTY_BY_TAB[tab];
+   800→  const categoryMeta = TODO_CATEGORIES.find((c) => c.value === category);
+   801→  const categoryScoped = category !== "all" && hasAnyTodos;
+   802→  const showEmptyAction = tab === "all" || tab === "today" || tab === "upcoming";
+   803→  const focusQuickAdd = () => quickAddRef.current?.focus();
+   804→
+   805→  return (
+   806→    <div className="space-y-4 sm:space-y-5">
+   807→      <ViewHeader
+   808→        title="Tasks"
+   809→        subtitle={`${doneTodayCount} done today · ${overdueCount} overdue`}
+   810→        actions={
+   811→          completedTotal > 0 ? (
+   812→            <Button
+   813→              variant="outline"
+   814→              size="sm"
+   815→              onClick={() => setClearOpen(true)}
+   816→              className="gap-1.5 rounded-xl text-muted-foreground hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+   817→            >
+   818→              <Trash2 className="size-3.5" aria-hidden="true" />
+   819→              Clear completed
+   820→            </Button>
+   821→          ) : undefined
+   822→        }
+   823→      />
+   824→
+   825→      {/* Quick add */}
+   826→      <section aria-label="Add a task">
+   827→        <div className="rounded-2xl border bg-card p-2 shadow-sm">
+   828→          <div className="flex items-center gap-1.5">
+   829→            <span
+   830→              className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"
+   831→              aria-hidden="true"
+   832→            >
+   833→              <Plus className="size-4.5" />
+   834→            </span>
+   835→            <Input
+   836→              ref={quickAddRef}
+   837→              value={quickTitle}
+   838→              onChange={(e) => setQuickTitle(e.target.value)}
+   839→              onKeyDown={(e) => {
+   840→                if (e.key === "Enter") {
+   841→                  e.preventDefault();
+   842→                  submitQuickAdd();
+   843→                }
+   844→              }}
+   845→              placeholder="Add a task…"
+   846→              aria-label="Task title"
+   847→              className="h-9 flex-1 border-0 bg-transparent px-1 shadow-none focus-visible:ring-0 dark:bg-transparent dark:border-0"
+   848→            />
+   849→            <Button
+   850→              size="icon"
+   851→              aria-label="Add task"
+   852→              onClick={submitQuickAdd}
+   853→              disabled={createMutation.isPending}
+   854→              className="size-9 shrink-0 rounded-xl"
+   855→            >
+   856→              {createMutation.isPending ? (
+   857→                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+   858→              ) : (
+   859→                <Plus className="size-4" aria-hidden="true" />
+   860→              )}
+   861→            </Button>
+   862→          </div>
+   863→          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 px-1 pb-1">
+   864→            <button
+   865→              type="button"
+   866→              onClick={cyclePriority}
+   867→              aria-label={`Priority: ${quickPriority}. Tap to change.`}
+   868→              title="Tap to change priority"
+   869→              className={cn(
+   870→                "inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium capitalize transition-colors",
+   871→                priorityChipStyles[quickPriority]
+   872→              )}
+   873→            >
+   874→              <span
+   875→                className={cn(
+   876→                  "size-2 rounded-full",
+   877→                  quickPriority === "urgent" && "bg-red-500",
+   878→                  quickPriority === "high" && "bg-orange-500",
+   879→                  quickPriority === "medium" && "bg-amber-500",
+   880→                  quickPriority === "low" && "bg-muted-foreground/50"
+   881→                )}
+   882→                aria-hidden="true"
+   883→              />
+   884→              {quickPriority}
+   885→            </button>
+   886→            <button
+   887→              type="button"
+   888→              onClick={cycleDue}
+   889→              aria-label={`Due: ${quickDue === "none" ? "no date" : quickDue}. Tap to change.`}
+   890→              title="Tap to change due date"
+   891→              className={cn(
+   892→                "inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium capitalize transition-colors",
+   893→                quickDue === "none"
+   894→                  ? "border-border bg-muted/50 text-muted-foreground"
+   895→                  : "border-primary/40 bg-primary/10 text-primary"
+   896→              )}
+   897→            >
+   898→              <CalendarDays className="size-3.5" aria-hidden="true" />
+   899→              {quickDue === "none" ? "No date" : quickDue}
+   900→            </button>
+   901→          </div>
+   902→        </div>
+   903→      </section>
+   904→
+   905→      {/* Filters */}
+   906→      <section aria-label="Filter tasks" className="space-y-2.5">
+   907→        <Tabs value={tab} onValueChange={(v) => setTab(v as TabValue)}>
+   908→          <TabsList className="h-10 w-full justify-between overflow-x-auto rounded-xl no-scrollbar">
+   909→            {TABS.map((t) => (
+   910→              <TabsTrigger
+   911→                key={t.value}
+   912→                value={t.value}
+   913→                className="flex-1 whitespace-nowrap px-2 text-xs sm:text-sm"
+   914→              >
+   915→                {t.label}
+   916→              </TabsTrigger>
+   917→            ))}
+   918→          </TabsList>
+   919→        </Tabs>
+   920→        <div
+   921→          className="flex gap-1.5 overflow-x-auto pb-0.5 no-scrollbar"
+   922→          role="group"
+   923→          aria-label="Filter by category"
+   924→        >
+   925→          <CategoryChip
+   926→            label="All"
+   927→            active={category === "all"}
+   928→            onClick={() => setCategory("all")}
+   929→          />
+   930→          {TODO_CATEGORIES.map((c) => (
+   931→            <CategoryChip
+   932→              key={c.value}
+   933→              label={`${c.label} ${c.emoji}`}
+   934→              active={category === c.value}
+   935→              onClick={() => setCategory(c.value)}
+   936→            />
+   937→          ))}
+   938→        </div>
+   939→      </section>
+   940→
+   941→      {/* Task list */}
+   942→      {isLoading ? (
+   943→        <TasksSkeleton />
+   944→      ) : isError ? (
+   945→        <EmptyState
+   946→          icon={CloudOff}
+   947→          title="Couldn't load your tasks"
+   948→          description="Something went wrong while fetching your tasks. Check your connection and try again."
+   949→          actionLabel="Try again"
+   950→          onAction={() => void refetch()}
+   951→        />
+   952→      ) : filtered.length === 0 ? (
+   953→        <EmptyState
+   954→          icon={categoryScoped ? ListTodo : empty.icon}
+   955→          title={
+   956→            categoryScoped
+   957→              ? `No ${categoryMeta?.label ?? category} tasks here`
+   958→              : empty.title
+   959→          }
+   960→          description={
+   961→            categoryScoped
+   962→              ? "Try another category filter, or add a new task in this one."
+   963→              : empty.description
+   964→          }
+   965→          actionLabel={showEmptyAction ? "Add a task" : undefined}
+   966→          onAction={showEmptyAction ? focusQuickAdd : undefined}
+   967→        />
+   968→      ) : (
+   969→        <div className="divide-y divide-border/70 rounded-2xl border bg-card shadow-sm">
+   970→          {visibleGroups.map((g) => (
+   971→            <section key={g.id} aria-label={`${g.label} tasks`}>
+   972→              <GroupLabel
+   973→                label={g.label}
+   974→                count={g.items.length}
+   975→                danger={g.tone === "danger"}
+   976→              />
+   977→              <div className="divide-y divide-border/60">
+   978→                {g.items.map((t) => (
+   979→                  <TodoRow
+   980→                    key={t.id}
+   981→                    todo={t}
+   982→                    onToggle={(todo) => toggleMutation.mutate(todo)}
+   983→                    onEdit={setEditing}
+   984→                    onDelete={setDeleting}
+   985→                  />
+   986→                ))}
+   987→              </div>
+   988→            </section>
+   989→          ))}
+   990→
+   991→          {completedShown && (
+   992→            <section aria-label="Completed tasks">
+   993→              <div className="sticky top-16 z-10 flex items-center justify-between gap-2 border-b border-border/70 bg-card/95 px-3 py-1 backdrop-blur sm:px-4 lg:top-0">
+   994→                <button
+   995→                  type="button"
+   996→                  onClick={() => setCompletedOpen((v) => !v)}
+   997→                  aria-expanded={completedExpanded}
+   998→                  className="flex items-center gap-1 rounded-md py-0.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
+   999→                >
+  1000→                  <ChevronDown
+  1001→                    className={cn(
+  1002→                      "size-3.5 transition-transform duration-200",
+  1003→                      completedExpanded && "rotate-180"
+  1004→                    )}
+  1005→                    aria-hidden="true"
+  1006→                  />
+  1007→                  Completed
+  1008→                </button>
+  1009→                <div className="flex items-center gap-2.5">
+  1010→                  <span className="text-xs font-medium tabular-nums text-muted-foreground/70">
+  1011→                    {completedTodos.length}
+  1012→                  </span>
+  1013→                  {completedTodos.length > 0 && (
+  1014→                    <button
+  1015→                      type="button"
+  1016→                      onClick={() => setClearOpen(true)}
+  1017→                      className="rounded-md px-1 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:text-destructive"
+  1018→                    >
+  1019→                      Clear
+  1020→                    </button>
+  1021→                  )}
+  1022→                </div>
+  1023→              </div>
+  1024→              {completedExpanded && (
+  1025→                <div className="max-h-72 divide-y divide-border/60 overflow-y-auto">
+  1026→                  {completedTodos.map((t) => (
+  1027→                    <TodoRow
+  1028→                      key={t.id}
+  1029→                      todo={t}
+  1030→                      onToggle={(todo) => toggleMutation.mutate(todo)}
+  1031→                      onEdit={setEditing}
+  1032→                      onDelete={setDeleting}
+  1033→                    />
+  1034→                  ))}
+  1035→                </div>
+  1036→              )}
+  1037→            </section>
+  1038→          )}
+  1039→        </div>
+  1040→      )}
+  1041→
+  1042→      {/* Edit dialog */}
+  1043→      {editing && (
+  1044→        <EditTaskDialog
+  1045→          key={editing.id}
+  1046→          todo={editing}
+  1047→          saving={updateMutation.isPending}
+  1048→          onCancel={() => setEditing(null)}
+  1049→          onSave={(patch) =>
+  1050→            updateMutation.mutate({ id: editing.id, patch })
+  1051→          }
+  1052→        />
+  1053→      )}
+  1054→
+  1055→      {/* Delete confirm */}
+  1056→      <AlertDialog
+  1057→        open={!!deleting}
+  1058→        onOpenChange={(open) => {
+  1059→          if (!open) setDeleting(null);
+  1060→        }}
+  1061→      >
+  1062→        <AlertDialogContent>
+  1063→          <AlertDialogHeader>
+  1064→            <AlertDialogTitle>Delete this task?</AlertDialogTitle>
+  1065→            <AlertDialogDescription>
+  1066→              &ldquo;{deleting?.title}&rdquo; will be permanently removed. This
+  1067→              cannot be undone.
+  1068→            </AlertDialogDescription>
+  1069→          </AlertDialogHeader>
+  1070→          <AlertDialogFooter>
+  1071→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+  1072→            <AlertDialogAction
+  1073→              onClick={(e) => {
+  1074→                e.preventDefault();
+  1075→                if (deleting) deleteMutation.mutate(deleting.id);
+  1076→              }}
+  1077→              className="bg-destructive text-white hover:bg-destructive/90"
+  1078→            >
+  1079→              {deleteMutation.isPending && (
+  1080→                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+  1081→              )}
+  1082→              Delete
+  1083→            </AlertDialogAction>
+  1084→          </AlertDialogFooter>
+  1085→        </AlertDialogContent>
+  1086→      </AlertDialog>
+  1087→
+  1088→      {/* Clear completed confirm */}
+  1089→      <AlertDialog open={clearOpen} onOpenChange={setClearOpen}>
+  1090→        <AlertDialogContent>
+  1091→          <AlertDialogHeader>
+  1092→            <AlertDialogTitle>Clear completed tasks?</AlertDialogTitle>
+  1093→            <AlertDialogDescription>
+  1094→              {completedTotal} completed {completedTotal === 1 ? "task" : "tasks"}{" "}
+  1095→              will be permanently deleted. This cannot be undone.
+  1096→            </AlertDialogDescription>
+  1097→          </AlertDialogHeader>
+  1098→          <AlertDialogFooter>
+  1099→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+  1100→            <AlertDialogAction
+  1101→              onClick={(e) => {
+  1102→                e.preventDefault();
+  1103→                clearMutation.mutate();
+  1104→              }}
+  1105→              className="bg-destructive text-white hover:bg-destructive/90"
+  1106→            >
+  1107→              {clearMutation.isPending && (
+  1108→                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+  1109→              )}
+  1110→              Clear all
+  1111→            </AlertDialogAction>
+  1112→          </AlertDialogFooter>
+  1113→        </AlertDialogContent>
+  1114→      </AlertDialog>
+  1115→    </div>
+  1116→  );
+  1117→}
+  1118→

@@ -18,6 +18,7 @@ import {
   MoreVertical,
   Pencil,
   Plus,
+  Repeat,
   Trash2,
   type LucideIcon,
 } from "lucide-react";
@@ -33,8 +34,10 @@ import {
 } from "@/lib/dates";
 import {
   PRIORITIES,
+  REPEAT_OPTIONS,
   TODO_CATEGORIES,
   type Priority,
+  type RepeatKind,
   type Todo,
   type TodoInput,
 } from "@/lib/types";
@@ -74,7 +77,12 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { CategoryBadge, PriorityBadge } from "@/components/app/shared/badges";
+import {
+  CategoryBadge,
+  PriorityBadge,
+  RepeatBadge,
+  repeatOptionLabel,
+} from "@/components/app/shared/badges";
 import { EmptyState } from "@/components/app/shared/empty-state";
 import { ViewHeader } from "@/components/app/shared/view-header";
 import { cn } from "@/lib/utils";
@@ -92,6 +100,14 @@ const TABS: { value: TabValue; label: string }[] = [
 
 const PRIORITY_CYCLE: Priority[] = ["low", "medium", "high", "urgent"];
 const DUE_CYCLE: DueChoice[] = ["none", "today", "tomorrow"];
+const REPEAT_CYCLE: RepeatKind[] = ["none", "daily", "weekdays", "weekly", "monthly"];
+
+/** Toast copy for completing a recurring todo, e.g. "Repeats daily — next occurrence created." */
+function repeatCompletionDescription(repeat: RepeatKind): string {
+  const option = REPEAT_OPTIONS.find((o) => o.value === repeat);
+  const label = (option?.label ?? repeat).toLowerCase();
+  return `Repeats ${label} — next occurrence created.`;
+}
 
 const priorityChipStyles: Record<Priority, string> = {
   low: "border-border bg-muted/50 text-muted-foreground",
@@ -339,6 +355,7 @@ function TodoRow({
               {formatDueLabel(todo.dueDate)}
             </span>
           )}
+          {todo.repeat !== "none" && <RepeatBadge repeat={todo.repeat} />}
           {todo.reminderAt && (
             <span
               className="inline-flex items-center gap-1 text-muted-foreground/70"
@@ -395,6 +412,7 @@ function EditTaskDialog({
   const [notes, setNotes] = React.useState(todo.notes ?? "");
   const [priority, setPriority] = React.useState<Priority>(todo.priority);
   const [category, setCategory] = React.useState(todo.category);
+  const [repeat, setRepeat] = React.useState<RepeatKind>(todo.repeat);
   const [dueDate, setDueDate] = React.useState(() => {
     if (!todo.dueDate) return "";
     const d = new Date(todo.dueDate);
@@ -426,6 +444,7 @@ function EditTaskDialog({
       category,
       dueDate: dueIso,
       reminderAt: reminderIso,
+      repeat,
     });
   };
 
@@ -538,6 +557,32 @@ function EditTaskDialog({
           </div>
 
           <div className="space-y-1.5">
+            <label htmlFor="edit-repeat" className={labelClass}>
+              Repeat
+            </label>
+            <Select
+              value={repeat}
+              onValueChange={(v) => setRepeat(v as RepeatKind)}
+            >
+              <SelectTrigger id="edit-repeat" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {REPEAT_OPTIONS.map((r) => (
+                  <SelectItem key={r.value} value={r.value}>
+                    {repeatOptionLabel(r.value)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground/70">
+              {REPEAT_OPTIONS.find((r) => r.value === repeat)?.hint ?? ""}
+              {repeat !== "none" &&
+                " — a fresh copy appears when you complete this task."}
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
             <label htmlFor="edit-reminder" className={labelClass}>
               Reminder
             </label>
@@ -594,6 +639,7 @@ export function TasksView() {
   const [quickTitle, setQuickTitle] = React.useState("");
   const [quickPriority, setQuickPriority] = React.useState<Priority>("medium");
   const [quickDue, setQuickDue] = React.useState<DueChoice>("today");
+  const [quickRepeat, setQuickRepeat] = React.useState<RepeatKind>("none");
   const [editing, setEditing] = React.useState<Todo | null>(null);
   const [deleting, setDeleting] = React.useState<Todo | null>(null);
   const [clearOpen, setClearOpen] = React.useState(false);
@@ -637,6 +683,14 @@ export function TasksView() {
         );
       }
       return { prev };
+    },
+    onSuccess: (_updated, todo) => {
+      // Completing a recurring todo spawns the next occurrence server-side.
+      if (!todo.completed && todo.repeat !== "none") {
+        toast.success("Task completed", {
+          description: repeatCompletionDescription(todo.repeat),
+        });
+      }
     },
     onError: (_e, _todo, ctx) => {
       if (ctx?.prev) {
@@ -771,7 +825,7 @@ export function TasksView() {
         ? null
         : localDateKeyToIso(quickDue === "today" ? today : tomorrow);
     createMutation.mutate(
-      { title, priority: quickPriority, dueDate },
+      { title, priority: quickPriority, dueDate, repeat: quickRepeat },
       {
         onSuccess: () => {
           setQuickTitle("");
@@ -790,6 +844,11 @@ export function TasksView() {
   const cycleDue = () =>
     setQuickDue(
       (d) => DUE_CYCLE[(DUE_CYCLE.indexOf(d) + 1) % DUE_CYCLE.length]
+    );
+
+  const cycleRepeat = () =>
+    setQuickRepeat(
+      (r) => REPEAT_CYCLE[(REPEAT_CYCLE.indexOf(r) + 1) % REPEAT_CYCLE.length]
     );
 
   const completedShown = completedTodos.length > 0 || tab === "completed";
@@ -824,7 +883,7 @@ export function TasksView() {
 
       {/* Quick add */}
       <section aria-label="Add a task">
-        <div className="rounded-2xl border bg-card p-2 shadow-sm">
+        <div className="rounded-2xl border bg-card p-2 shadow-card">
           <div className="flex items-center gap-1.5">
             <span
               className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"
@@ -898,6 +957,21 @@ export function TasksView() {
               <CalendarDays className="size-3.5" aria-hidden="true" />
               {quickDue === "none" ? "No date" : quickDue}
             </button>
+            <button
+              type="button"
+              onClick={cycleRepeat}
+              aria-label={`Repeat: ${quickRepeat === "none" ? "never" : quickRepeat}. Tap to change.`}
+              title="Tap to change repeat"
+              className={cn(
+                "inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors",
+                quickRepeat === "none"
+                  ? "border-border bg-muted/50 text-muted-foreground"
+                  : "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+              )}
+            >
+              <Repeat className="size-3.5" aria-hidden="true" />
+              {quickRepeat === "none" ? "No repeat" : repeatOptionLabel(quickRepeat)}
+            </button>
           </div>
         </div>
       </section>
@@ -966,7 +1040,7 @@ export function TasksView() {
           onAction={showEmptyAction ? focusQuickAdd : undefined}
         />
       ) : (
-        <div className="divide-y divide-border/70 rounded-2xl border bg-card shadow-sm">
+        <div className="divide-y divide-border/70 rounded-2xl border bg-card shadow-card">
           {visibleGroups.map((g) => (
             <section key={g.id} aria-label={`${g.label} tasks`}>
               <GroupLabel
@@ -974,7 +1048,7 @@ export function TasksView() {
                 count={g.items.length}
                 danger={g.tone === "danger"}
               />
-              <div className="divide-y divide-border/60">
+              <div className="stagger-list divide-y divide-border/60">
                 {g.items.map((t) => (
                   <TodoRow
                     key={t.id}

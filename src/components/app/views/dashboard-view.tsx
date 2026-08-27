@@ -410,6 +410,15 @@ function FocusRow({
       >
         {todo.title}
       </p>
+      {todo.repeat !== "none" && (
+        <span
+          className="inline-flex shrink-0 items-center text-muted-foreground"
+          title={`Repeats ${todo.repeat}`}
+        >
+          <Repeat className="size-3" aria-hidden="true" />
+          <span className="sr-only">Repeats {todo.repeat}</span>
+        </span>
+      )}
       {todo.dueDate && (
         <span
           className={cn(
@@ -486,7 +495,7 @@ function OnboardingCard({
   onSetGoal: () => void;
 }) {
   return (
-    <div className="rounded-2xl border bg-gradient-to-b from-primary/10 via-card to-card p-6 text-center shadow-sm sm:p-8">
+    <div className="rounded-2xl border bg-gradient-to-b from-primary/10 via-card to-card p-6 text-center shadow-card sm:p-8">
       <div className="mx-auto flex size-16 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-md">
         <Zap className="size-8" aria-hidden="true" />
       </div>
@@ -726,7 +735,7 @@ export function DashboardView() {
               Nothing due in the next week — enjoy the breathing room.
             </p>
           ) : (
-            <div className="divide-y divide-border/70 rounded-2xl border bg-card shadow-sm">
+            <div className="divide-y divide-border/70 rounded-2xl border bg-card shadow-card">
               {upcomingTodos.slice(0, 6).map((todo) => (
                 <FocusRow
                   key={todo.id}
@@ -784,7 +793,7 @@ export function DashboardView() {
                     type="button"
                     onClick={() => setView("goals")}
                     aria-label={`Open goal: ${goal.title}`}
-                    className="rounded-2xl border bg-card p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.99]"
+                    className="press rounded-2xl border bg-card p-4 text-left shadow-card transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.99]"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <p className="min-w-0 text-sm font-semibold leading-snug line-clamp-1">
@@ -829,7 +838,7 @@ export function DashboardView() {
               No entries yet — tonight is a good night to write.
             </p>
           ) : (
-            <div className="divide-y divide-border/70 rounded-2xl border bg-card shadow-sm">
+            <div className="divide-y divide-border/70 rounded-2xl border bg-card shadow-card">
               {recentJournal.map((entry) => {
                 const mood = MOODS.find((m) => m.value === entry.mood);
                 return (

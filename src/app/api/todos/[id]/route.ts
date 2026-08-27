@@ -1,9 +1,12 @@
 // PATCH /api/todos/:id (partial + { completed } toggling completedAt) → Todo
+// Completing a recurring todo (repeat != "none") also spawns the next
+// occurrence as a fresh active todo.
 // DELETE /api/todos/:id → { ok: true }
 
 import { db } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
 import { handleApiError, HttpError, json, parseOrThrow, readJsonBody } from "@/lib/server/http";
+import { nextOccurrence, type RepeatKind } from "@/lib/server/recurrence";
 import { toNullableDate, todoUpdateSchema } from "@/lib/server/schemas";
 import { serializeTodo } from "@/lib/server/service";
 
@@ -28,6 +31,8 @@ export async function PATCH(req: Request, ctx: RouteContext) {
     if (dueDate !== undefined) data.dueDate = dueDate;
     const reminderAt = toNullableDate(input.reminderAt);
     if (reminderAt !== undefined) data.reminderAt = reminderAt;
+    if (input.repeat !== undefined) data.repeat = input.repeat;
+    const completingNow = input.completed === true && !existing.completed;
     if (input.completed !== undefined) {
       data.completed = input.completed;
       // Keep the original completion timestamp when re-completing.
@@ -35,6 +40,31 @@ export async function PATCH(req: Request, ctx: RouteContext) {
     }
 
     const updated = await db.todo.update({ where: { id }, data });
+
+    // Spawn the next occurrence when a recurring todo is completed.
+    if (completingNow && updated.repeat !== "none") {
+      const repeat = updated.repeat as Exclude<RepeatKind, "none">;
+      const base = dueDate !== undefined ? dueDate : existing.dueDate;
+      const nextDue = nextOccurrence(base, repeat);
+      let nextReminder: Date | null = null;
+      if (nextDue && existing.dueDate && existing.reminderAt) {
+        // Shift the reminder by exactly the same delta as the due date.
+        const delta = nextDue.getTime() - existing.dueDate.getTime();
+        nextReminder = new Date(existing.reminderAt.getTime() + delta);
+      }
+      await db.todo.create({
+        data: {
+          title: updated.title,
+          notes: updated.notes,
+          priority: updated.priority,
+          category: updated.category,
+          dueDate: nextDue,
+          reminderAt: nextReminder,
+          repeat: updated.repeat,
+        },
+      });
+    }
+
     return json(serializeTodo(updated));
   } catch (err) {
     return handleApiError(err);

@@ -241,7 +241,7 @@ function TotalsStrip({ totals }: { totals: InsightsData["totals"] }) {
             </span>
             <div className="min-w-0">
               <p className="text-2xl font-bold leading-none tabular-nums">{value}</p>
-              <p className="mt-1 truncate text-xs font-medium text-muted-foreground">
+              <p className="mt-1 text-xs font-medium leading-snug text-muted-foreground">
                 {label}
               </p>
             </div>

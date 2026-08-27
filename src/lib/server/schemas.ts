@@ -5,6 +5,7 @@ import { z } from "zod";
 import { isValidDayKey } from "./daykeys";
 
 export const prioritySchema = z.enum(["low", "medium", "high", "urgent"]);
+export const repeatKindSchema = z.enum(["none", "daily", "weekdays", "weekly", "monthly"]);
 export const timeOfDaySchema = z.enum([
   "morning",
   "afternoon",
@@ -78,6 +79,7 @@ export const todoCreateSchema = z.object({
   category: z.string().trim().min(1).max(40).optional(),
   dueDate: isoDateTimeField,
   reminderAt: isoDateTimeField,
+  repeat: repeatKindSchema.optional(),
 });
 
 export const todoUpdateSchema = todoCreateSchema.partial().extend({

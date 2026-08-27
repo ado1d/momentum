@@ -21,6 +21,7 @@ model Todo {
   category    String    @default("personal") // personal | work | learning | health | other
   dueDate     DateTime? // date + optional time
   reminderAt  DateTime?
+  repeat      String    @default("none") // none | daily | weekdays | weekly | monthly
   completed   Boolean   @default(false)
   completedAt DateTime?
   createdAt   DateTime  @default(now())

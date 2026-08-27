@@ -8,7 +8,7 @@ import { PrismaClient } from '.prisma/client'
 // The cache key below is versioned: bump it after `prisma generate` with
 // schema changes so hot-reload creates a fresh client instead of reusing the
 // stale singleton kept on globalThis.
-const PRISMA_CACHE_KEY = 'prisma:v4'
+const PRISMA_CACHE_KEY = 'prisma:v5'
 
 const globalForPrisma = globalThis as unknown as {
   [key: string]: PrismaClient | undefined

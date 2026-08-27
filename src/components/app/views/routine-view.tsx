@@ -158,7 +158,7 @@ function TodayBanner({ habits }: { habits: Habit[] }) {
   const remaining = total - done;
 
   return (
-    <Card className="overflow-hidden rounded-2xl border-primary/20 bg-gradient-to-br from-primary/10 via-card to-card shadow-sm">
+    <Card className="overflow-hidden rounded-2xl border-primary/20 bg-gradient-to-br from-primary/10 via-card to-card shadow-card">
       <CardContent className="flex items-center gap-4 p-4 sm:p-5">
         <ProgressRing
           value={pct}
@@ -204,8 +204,8 @@ function HabitCard({ habit, today, toggling, onToggle, onEdit, onDelete }: Habit
   return (
     <Card
       className={cn(
-        "rounded-2xl py-0 transition-all duration-300 hover:shadow-md",
-        habit.doneToday ? "border-primary/30 bg-primary/[0.03]" : "shadow-sm"
+        "rounded-2xl py-0 transition-all duration-300 hover:shadow-md hover:-translate-y-0.5 press",
+        habit.doneToday ? "border-primary/30 bg-primary/[0.03]" : "shadow-card"
       )}
     >
       <CardContent className="flex items-center gap-3 p-4">
@@ -1033,7 +1033,7 @@ export function RoutineView() {
                         {groupHabits.length}
                       </span>
                     </div>
-                    <ul className="space-y-3">
+                    <ul className="stagger-list space-y-3">
                       {groupHabits.map((habit) => (
                         <HabitCard
                           key={habit.id}
@@ -1076,7 +1076,7 @@ export function RoutineView() {
                 if (sectionTasks.length === 0) return null;
                 const done = sectionTasks.filter((t) => t.doneToday).length;
                 return (
-                  <Card key={section} className="rounded-2xl shadow-sm">
+                  <Card key={section} className="rounded-2xl shadow-card">
                     <CardContent className="p-4 sm:p-5">
                       <div className="mb-2 flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">

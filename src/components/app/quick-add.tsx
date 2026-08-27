@@ -6,7 +6,13 @@ import { Loader2, NotebookPen, Plus, StickyNote, ListTodo } from "lucide-react";
 import { toast } from "sonner";
 import { journalApi, notesApi, todosApi } from "@/lib/api";
 import { todayKey } from "@/lib/dates";
-import { MOODS, type Mood, type Priority } from "@/lib/types";
+import {
+  MOODS,
+  REPEAT_OPTIONS,
+  type Mood,
+  type Priority,
+  type RepeatKind,
+} from "@/lib/types";
 import { useUiStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +25,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { repeatOptionLabel } from "@/components/app/shared/badges";
 import { cn } from "@/lib/utils";
 
 type QuickTab = "task" | "note" | "diary";
@@ -32,6 +39,7 @@ export function QuickAddDialog() {
   const [title, setTitle] = React.useState("");
   const [priority, setPriority] = React.useState<Priority>("medium");
   const [due, setDue] = React.useState<"none" | "today" | "tomorrow">("today");
+  const [repeat, setRepeat] = React.useState<RepeatKind>("none");
   const [content, setContent] = React.useState("");
   const [mood, setMood] = React.useState<Mood | null>(null);
 
@@ -39,6 +47,7 @@ export function QuickAddDialog() {
     setTitle("");
     setPriority("medium");
     setDue("today");
+    setRepeat("none");
     setContent("");
     setMood(null);
   };
@@ -57,6 +66,7 @@ export function QuickAddDialog() {
       todosApi.create({
         title: title.trim(),
         priority,
+        repeat,
         dueDate:
           due === "none"
             ? null
@@ -193,6 +203,25 @@ export function QuickAddDialog() {
                   )}
                 >
                   {d}
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Repeat:</span>
+              {REPEAT_OPTIONS.map((r) => (
+                <button
+                  key={r.value}
+                  type="button"
+                  aria-pressed={repeat === r.value}
+                  onClick={() => setRepeat(r.value)}
+                  className={cn(
+                    "rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                    repeat === r.value
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-background hover:bg-muted"
+                  )}
+                >
+                  {repeatOptionLabel(r.value)}
                 </button>
               ))}
             </div>

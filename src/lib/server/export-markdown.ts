@@ -69,6 +69,7 @@ function tasksSection(data: ExportData, out: string[]): void {
     for (const t of active) {
       const bits = [`**${t.title}**`, t.priority, t.category];
       if (t.dueDate) bits.push(`due ${dayKeyOfDate(t.dueDate)}`);
+      if (t.repeat && t.repeat !== "none") bits.push(`repeats ${t.repeat}`);
       if (t.reminderAt) bits.push(`reminder ${dayKeyOfDate(t.reminderAt)}`);
       out.push(`- ${bits.join(" · ")}`);
       if (t.notes) out.push(`  ${indentBlockquote(t.notes)}`);

@@ -18,6 +18,7 @@ import type {
   NoteInput,
   RoutineTask,
   RoutineTaskInput,
+  SearchResults,
   Todo,
   TodoInput,
   ToggleResult,
@@ -150,6 +151,14 @@ export const goalsApi = {
 export const statsApi = {
   dashboard: () => get<DashboardStats>("/api/stats"),
   insights: () => get<InsightsData>("/api/insights"),
+};
+
+// ── Global search (command palette) ──────────────────────────
+export const searchApi = {
+  query: (q: string) => {
+    const qs = new URLSearchParams({ q });
+    return get<SearchResults>(`/api/search?${qs.toString()}`);
+  },
 };
 
 // ── Focus sessions (Pomodoro) ────────────────────────────────

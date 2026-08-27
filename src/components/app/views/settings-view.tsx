@@ -298,7 +298,7 @@ export function SettingsView() {
       ) : (
         <div className="space-y-4">
           {/* ── Notifications ── */}
-          <Card className="rounded-2xl py-0 shadow-sm">
+          <Card className="rounded-2xl py-0 shadow-card">
             <CardHeader className="p-4 pb-2 sm:p-6 sm:pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
                 <Bell className="size-4.5 text-primary" aria-hidden="true" />
@@ -361,7 +361,7 @@ export function SettingsView() {
           </Card>
 
           {/* ── Preferences ── */}
-          <Card className="rounded-2xl py-0 shadow-sm">
+          <Card className="rounded-2xl py-0 shadow-card">
             <CardHeader className="p-4 pb-2 sm:p-6 sm:pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
                 <SettingsIcon className="size-4.5 text-primary" aria-hidden="true" />
@@ -438,7 +438,7 @@ export function SettingsView() {
           </Card>
 
           {/* ── Data & export ── */}
-          <Card className="rounded-2xl py-0 shadow-sm">
+          <Card className="rounded-2xl py-0 shadow-card">
             <CardHeader className="p-4 pb-2 sm:p-6 sm:pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
                 <DatabaseBackup className="size-4.5 text-primary" aria-hidden="true" />
@@ -497,7 +497,7 @@ export function SettingsView() {
           </Card>
 
           {/* ── About ── */}
-          <Card className="rounded-2xl py-0 shadow-sm">
+          <Card className="rounded-2xl py-0 shadow-card">
             <CardContent className="p-4 sm:p-6">
               <div className="flex items-center gap-3">
                 <div

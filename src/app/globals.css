@@ -158,6 +158,52 @@
   .text-balance {
     text-wrap: balance;
   }
+  /* Layered, softer-than-default card elevation (light + dark aware) */
+  .shadow-card {
+    box-shadow:
+      0 1px 2px color-mix(in oklch, var(--foreground) 4%, transparent),
+      0 4px 16px color-mix(in oklch, var(--foreground) 5%, transparent);
+  }
+  .dark .shadow-card {
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 0.25),
+      0 6px 20px rgb(0 0 0 / 0.3);
+  }
+  /* Gentle press feedback for tappable rows/cards/chips */
+  .press {
+    transition: transform 120ms ease;
+  }
+  .press:active {
+    transform: scale(0.985);
+  }
+  /* Staggered list entrance — children fade in one after another */
+  .stagger-list > * {
+    animation: view-in 0.3s ease-out both;
+  }
+  .stagger-list > *:nth-child(1) { animation-delay: 0ms; }
+  .stagger-list > *:nth-child(2) { animation-delay: 35ms; }
+  .stagger-list > *:nth-child(3) { animation-delay: 70ms; }
+  .stagger-list > *:nth-child(4) { animation-delay: 105ms; }
+  .stagger-list > *:nth-child(5) { animation-delay: 140ms; }
+  .stagger-list > *:nth-child(6) { animation-delay: 175ms; }
+  .stagger-list > *:nth-child(7) { animation-delay: 210ms; }
+  .stagger-list > *:nth-child(8) { animation-delay: 245ms; }
+  .stagger-list > *:nth-child(n+9) { animation-delay: 280ms; }
+  /* Emerald-tinted text selection */
+  ::selection {
+    background: color-mix(in oklch, var(--primary) 22%, transparent);
+  }
+}
+
+/* Respect users who prefer reduced motion: kill decorative animations */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* Fade/slide-in for view transitions */

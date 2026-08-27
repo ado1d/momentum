@@ -10,8 +10,10 @@ import type { ViewId } from "./types";
 interface UiState {
   view: ViewId;
   quickAddOpen: boolean;
+  paletteOpen: boolean;
   setView: (view: ViewId) => void;
   setQuickAddOpen: (open: boolean) => void;
+  setPaletteOpen: (open: boolean) => void;
 }
 
 export const useUiStore = create<UiState>()(
@@ -19,8 +21,10 @@ export const useUiStore = create<UiState>()(
     (set) => ({
       view: "dashboard",
       quickAddOpen: false,
-      setView: (view) => set({ view, quickAddOpen: false }),
+      paletteOpen: false,
+      setView: (view) => set({ view, quickAddOpen: false, paletteOpen: false }),
       setQuickAddOpen: (quickAddOpen) => set({ quickAddOpen }),
+      setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
     }),
     {
       name: "momentum-ui",

@@ -1,8 +1,9 @@
 "use client";
 
+import { Repeat } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import type { Priority, TodoCategory } from "@/lib/types";
+import type { Priority, RepeatKind, TodoCategory } from "@/lib/types";
 
 const priorityStyles: Record<Priority, string> = {
   urgent: "bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/30",
@@ -32,6 +33,27 @@ const categoryEmoji: Record<string, string> = {
   health: "💪",
   other: "✨",
 };
+
+/** Capitalized display label for a repeat kind ("daily" → "Daily"). */
+export function repeatOptionLabel(repeat: RepeatKind): string {
+  if (repeat === "none") return "None";
+  return repeat.charAt(0).toUpperCase() + repeat.slice(1);
+}
+
+/** Subtle emerald badge marking a todo as recurring; renders nothing for "none". */
+export function RepeatBadge({ repeat }: { repeat: RepeatKind }) {
+  if (repeat === "none") return null;
+  return (
+    <Badge
+      variant="outline"
+      title={`Repeats ${repeat}`}
+      className="rounded-full border-emerald-500/30 bg-emerald-500/10 px-2 py-0 text-[10px] font-medium text-emerald-700 dark:text-emerald-300"
+    >
+      <Repeat aria-hidden="true" />
+      {repeatOptionLabel(repeat)}
+    </Badge>
+  );
+}
 
 export function CategoryBadge({ category }: { category: string }) {
   return (

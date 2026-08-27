@@ -88,6 +88,7 @@ export function serializeTodo(t: TodoRow): Todo {
     category: t.category,
     dueDate: t.dueDate ? t.dueDate.toISOString() : null,
     reminderAt: t.reminderAt ? t.reminderAt.toISOString() : null,
+    repeat: t.repeat as Todo["repeat"],
     completed: t.completed,
     completedAt: t.completedAt ? t.completedAt.toISOString() : null,
     createdAt: t.createdAt.toISOString(),

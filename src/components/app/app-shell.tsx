@@ -2,8 +2,9 @@
 
 import * as React from "react";
 import { useTheme } from "next-themes";
-import { Menu, Monitor, Moon, Plus, Sun, Zap } from "lucide-react";
+import { Menu, Monitor, Moon, Plus, Search, Sun, Zap } from "lucide-react";
 import { MOBILE_MORE_NAV, MOBILE_PRIMARY_NAV, NAV_ITEMS } from "./nav-config";
+import { CommandPalette } from "./command-palette";
 import { useUiStore } from "@/lib/store";
 import type { ViewId } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -164,6 +165,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const view = useUiStore((s) => s.view);
   const setView = useUiStore((s) => s.setView);
   const setQuickAddOpen = useUiStore((s) => s.setQuickAddOpen);
+  const setPaletteOpen = useUiStore((s) => s.setPaletteOpen);
   const [moreOpen, setMoreOpen] = React.useState(false);
 
   const navigate = (v: ViewId) => {
@@ -179,6 +181,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="flex items-center justify-between px-4 py-3">
           <Brand />
           <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Search"
+              className="size-10 rounded-xl"
+              onClick={() => setPaletteOpen(true)}
+            >
+              <Search className="size-5" />
+            </Button>
             <BellMenu />
             <Button
               size="icon"
@@ -199,6 +210,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="px-2 pb-6">
               <Brand />
             </div>
+            <button
+              type="button"
+              onClick={() => setPaletteOpen(true)}
+              aria-label="Open search"
+              className="mb-3 flex w-full items-center gap-2 rounded-lg border bg-background px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <Search className="size-4 shrink-0" aria-hidden="true" />
+              <span className="flex-1 text-left">Search…</span>
+              <kbd className="pointer-events-none hidden items-center justify-center rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px] leading-none text-muted-foreground sm:inline-flex">
+                ⌘K
+              </kbd>
+            </button>
             <SidebarNav view={view} onNavigate={navigate} />
           </div>
           <div className="relative overflow-hidden rounded-2xl border bg-card px-3 py-3">
@@ -206,13 +229,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               aria-hidden="true"
               className="pointer-events-none absolute -right-6 -top-8 size-20 rounded-full bg-primary/10 blur-2xl"
             />
-            <div className="relative flex items-center justify-between">
-              <div className="leading-tight">
+            <div className="relative flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => navigate("insights")}
+                aria-label="Stay consistent — view your insights"
+                className="group -mx-1 rounded-lg px-1 py-0.5 text-left leading-tight transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+              >
                 <p className="text-xs font-semibold">Stay consistent</p>
-                <p className="text-[10px] text-muted-foreground">
-                  Small steps, big results
+                <p className="text-[10px] text-muted-foreground transition-colors group-hover:text-primary/80">
+                  Small steps, big results →
                 </p>
-              </div>
+              </button>
               <ThemeToggle />
             </div>
           </div>
@@ -266,6 +294,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </SheetContent>
       </Sheet>
+
+      {/* Global search / command palette (⌘K) */}
+      <CommandPalette />
     </div>
   );
 }

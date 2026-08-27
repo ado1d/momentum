@@ -157,7 +157,7 @@ function NoteCard({ note, onOpen, onTogglePin, onDelete, pinPending }: NoteCardP
   return (
     <Card
       className={cn(
-        "mb-4 cursor-pointer break-inside-avoid rounded-2xl py-0 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
+        "mb-4 cursor-pointer break-inside-avoid rounded-2xl py-0 shadow-card transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 press",
         NOTE_CARD_STYLES[note.color] ?? NOTE_CARD_STYLES.default
       )}
       onClick={() => onOpen(note)}
@@ -792,7 +792,7 @@ export function NotesView() {
               }}
             />
           ) : (
-            <div className="columns-1 gap-4 sm:columns-2">
+            <div className="stagger-list columns-1 gap-4 sm:columns-2">
               {filtered.map((note) => (
                 <NoteCard
                   key={note.id}

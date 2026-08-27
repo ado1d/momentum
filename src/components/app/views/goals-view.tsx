@@ -158,7 +158,7 @@ function QueryError({ onRetry }: { onRetry: () => void }) {
 function StatChip({ label, value, hint }: { label: string; value: number; hint: string }) {
   return (
     <div
-      className="rounded-2xl border bg-card px-2 py-3 text-center shadow-sm"
+      className="rounded-2xl border bg-card px-2 py-3 text-center shadow-card"
       title={hint}
     >
       <p className="text-xl font-bold tabular-nums sm:text-2xl">{value}</p>
@@ -217,7 +217,7 @@ function GoalCard({
   return (
     <Card
       className={cn(
-        "rounded-2xl py-0 shadow-sm transition-all duration-300 hover:shadow-md",
+        "press rounded-2xl py-0 shadow-card transition-all duration-300 hover:shadow-md hover:-translate-y-0.5",
         completed && "border-emerald-500/40 bg-emerald-500/[0.05]",
         archived && "opacity-70"
       )}
@@ -939,7 +939,7 @@ export function GoalsView() {
               </Button>
             </div>
           ) : (
-            <ul className="space-y-3">
+            <ul className="stagger-list space-y-3">
               {filtered.map((goal) => (
                 <GoalCard
                   key={goal.id}

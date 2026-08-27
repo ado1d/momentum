@@ -1,0 +1,307 @@
+     1→     1→# Momentum — Productivity Companion · Worklog
+     2→     2→
+     3→     3→Project: Next.js 16 (App Router) + TypeScript + Tailwind 4 + shadcn/ui + Prisma (SQLite) + Zustand + TanStack Query + sonner.
+     4→     4→Single user-visible route: `/` (SPA with client-side view switching — NO other pages/routes may be created).
+     5→     5→
+     6→     6→---
+     7→     7→
+     8→     8→Task ID: 1
+     9→     9→Agent: main
+    10→    10→Task: Foundation — schema, theme, libs, app shell, API contract
+    11→    11→
+    12→    12→Work Log:
+    13→    13→- Designed Prisma schema (prisma/schema.prisma) with models: Todo, Habit, HabitLog, RoutineTask, RoutineLog, Note, JournalEntry, Goal, Settings. Pushed to SQLite (`bun run db:push`). Local-day keys are `YYYY-MM-DD` strings; timestamps are DateTime.
+    14→    14→- Created `src/lib/types.ts` — ALL shared types (Todo, Habit, RoutineTask, Note, JournalEntry, Goal, AppSettings, DashboardStats, ViewId, enums + constant option lists).
+    15→    15→- Created `src/lib/dates.ts` — day-key helpers (todayKey, weekStartKey, lastNDays, friendlyDay, formatDueLabel, isOverdue, greeting).
+    16→    16→- Created `src/lib/api.ts` — typed fetch client: `todosApi, habitsApi, routineApi, notesApi, journalApi, goalsApi, statsApi, settingsApi, exportApi`. All views MUST use these, not raw fetch.
+    17→    17→- Created `src/lib/store.ts` — zustand `useUiStore` (view, quickAddOpen) persisted as `momentum-ui`.
+    18→    18→- Created `src/lib/export.ts` — downloadMarkdown/downloadJson/printHtml (PDF via print pipeline) + miniMarkdownToHtml + esc.
+    19→    19→- Created `src/lib/notifications.ts` — browser notification engine helpers (computeDueReminders, requestNotificationPermission, showNotification).
+    20→    20→- Theme: `src/app/globals.css` — emerald/teal primary (NO indigo/blue), custom scrollbars, `.view-enter` animation, print CSS (`#momentum-print`), safe-area utilities.
+    21→    21→- `src/app/layout.tsx` — metadata, viewport (mobile), Providers (next-themes + TanStack Query + sonner Toaster). `public/icon.svg` created.
+    22→    22→- App shell (`src/components/app/app-shell.tsx`): desktop sidebar nav + mobile top bar & fixed bottom nav (Home/Tasks/Routine/Goals/More sheet w/ Notes/Diary/Settings), theme toggle, BellMenu (notification center popover), QuickAddDialog (task/note/diary quick capture), NotificationEngine (60s reminder polling).
+    23→    23→- `src/app/page.tsx` — mounts AppShell + lazy-loads 7 views from `src/components/app/views/*-view.tsx` (stub files currently exist).
+    24→    24→- Shared components in `src/components/app/shared/`: EmptyState, ViewHeader+SectionHeading, ProgressRing+ProgressBar, PriorityBadge/CategoryBadge/habit color maps (badges.tsx), MarkdownContent (lazy react-markdown), WeekDots.
+    25→    25→- Nav config: `src/components/app/nav-config.ts` (NAV_ITEMS, MOBILE_PRIMARY_NAV, MOBILE_MORE_NAV).
+    26→    26→
+    27→    27→Stage Summary:
+    28→    28→- Foundation complete. Views are stubs. NEXT: backend API routes (Task 2), then views (Tasks 3-a/b/c).
+    29→    29→
+    30→    30→════════════════════════════════════════════════════════════════
+    31→    31→API CONTRACT (backend must implement; frontend api.ts already coded):
+    32→    32→════════════════════════════════════════════════════════════════
+    33→    33→All routes return JSON. Errors: `{ "error": "message" }` + proper status.
+    34→    34→
+    35→    35→- GET  /api/todos?status=active|completed&category=...  → Todo[] (dueDate ASC, priority order urgent>high>medium>low, createdAt DESC; include completed in response when status filter set; "active" = not completed)
+    36→    36→- POST /api/todos {title, notes?, priority?, category?, dueDate?(ISO), reminderAt?(ISO)} → Todo
+    37→    37→- PATCH /api/todos/:id (partial + {completed?: boolean} — sets completedAt) → Todo
+    38→    38→- DELETE /api/todos/:id → {ok:true}
+    39→    39→- POST /api/todos/clear-completed → {ok:true} (deletes completed todos)
+    40→    40→
+    41→    41→- GET /api/habits → Habit[] (non-archived, sortOrder ASC; each includes `logs: HabitLog[]` (last 60 days), plus computed `streak` (consecutive days ending today or yesterday), `doneToday`, `completionsThisWeek`)
+    42→    42→- POST /api/habits {name, emoji?, color?, timeOfDay?, reminderTime?} → Habit
+    43→    43→- PATCH /api/habits/:id (partial + {archived?}) → Habit
+    44→    44→- DELETE /api/habits/:id → {ok:true}
+    45→    45→- POST /api/habits/:id/toggle {date:"YYYY-MM-DD"} → {done:boolean, streak:number}
+    46→    46→
+    47→    47→- GET /api/routine → RoutineTask[] (non-archived, section morning→afternoon→evening then sortOrder; `doneToday` computed + `streak` computed)
+    48→    48→- POST /api/routine {name, emoji?, section?, time?, days?} → RoutineTask
+    49→    49→- PATCH /api/routine/:id → RoutineTask
+    50→    50→- DELETE /api/routine/:id → {ok:true}
+    51→    51→- POST /api/routine/:id/toggle {date} → {done:boolean}
+    52→    52→
+    53→    53→- GET /api/notes → Note[] (pinned first, then updatedAt DESC)
+    54→    54→- POST /api/notes {title?, content?, tag?, color?, pinned?} → Note
+    55→    55→- PATCH /api/notes/:id → Note
+    56→    56→- DELETE /api/notes/:id → {ok:true}
+    57→    57→
+    58→    58→- GET /api/journal?limit=50 → JournalEntry[] (date DESC)
+    59→    59→- GET /api/journal/:date (YYYY-MM-DD) → JournalEntry | null
+    60→    60→- POST /api/journal {date, title?, content?, mood?, energy?, gratitude?} → JournalEntry (UPSERT by date)
+    61→    61→- DELETE /api/journal/:id → {ok:true}
+    62→    62→
+    63→    63→- GET /api/goals?status=&period= → Goal[] (status active first, createdAt DESC; "all" for everything)
+    64→    64→- POST /api/goals {title, description?, category?, period?, target?, unit?, startDate?, endDate?} → Goal
+    65→    65→- PATCH /api/goals/:id (partial + {progress?, status?}) → Goal (status auto-"completed" when progress>=target)
+    66→    66→- POST /api/goals/:id/progress {delta:number} → Goal (clamped 0..target; auto-complete)
+    67→    67→- DELETE /api/goals/:id → {ok:true}
+    68→    68→- POST /api/goals/reset-period {period} → {ok:true} (sets progress=0 & status="active" for goals of that period)
+    69→    69→
+    70→    70→- GET /api/stats → DashboardStats {
+    71→    71→    today:{todosTotal, todosDone, habitsTotal, habitsDone, routineTotal, routineDone, goalsActive, bestStreak, score(0-100), journalWritten, overdueCount},
+    72→    72→    week: DayStat[] (last 7 days: {date, todosCompleted, habitsCompleted, routineCompleted, score}),
+    73→    73→    activeGoals: Goal[] (top 4 by progress), upcomingTodos: Todo[] (active, dueDate within next 7 days incl today, ≤6 items),
+    74→    74→    todayHabits: Habit[] (≤6), recentJournal: JournalEntry[] (≤3),
+    75→    75→    quote: {text, author} (rotating motivational quotes picked by day-of-year)
+    76→    76→  }
+    77→    77→  Score formula (per day): round(50*todosCompleted/max(1,todosTotal) + 30*habitsCompleted/max(1,habitsTotal) + 20*routineCompleted/max(1,routineTotal)) — for "today" include journalWritten as bonus: score = min(100, base + (journalWritten?5:0)).
+    78→    78→
+    79→    79→- GET /api/settings → AppSettings; PATCH /api/settings (partial) → AppSettings (single row id="app", upsert on read)
+    80→    80→
+    81→    81→- GET /api/export?format=markdown|json&scope=all|tasks|routine|notes|journal|goals
+    82→    82→  - markdown → text/markdown response (well-structured MD with sections per entity type)
+    83→    83→  - json → full backup JSON (all tables + settings)
+    84→    84→
+    85→    85→Validation with zod. Use `import { db } from "@/lib/db"`. Helper `json(data, status)` in route handlers. Date-key strings must be treated as LOCAL day keys (no timezone conversion).
+    86→    86→
+    87→    87→════════════════════════════════════════════════════════════════
+    88→    88→FRONTEND VIEW SPEC (for Tasks 3-a/b/c):
+    89→    89→════════════════════════════════════════════════════════════════
+    90→    90→Views live in src/components/app/views/*. Use:
+    91→    91→- `useUiStore` for view switching; `toast` (sonner) for feedback; TanStack Query hooks with the api client in `@/lib/api`.
+    92→    92→- Shared components: `@/components/app/shared/*` (EmptyState, ViewHeader, SectionHeading, ProgressRing, ProgressBar, PriorityBadge, CategoryBadge, habitRingStyles/habitDotStyles, MarkdownContent, WeekDots).
+    93→    93→- shadcn components from `@/components/ui/*` (button, card, dialog, input, textarea, select, tabs, badge, checkbox, dropdown-menu, popover, sheet, alert-dialog, progress, switch, slider, calendar, separator, skeleton, scroll-area).
+    94→    94→- Dates: `@/lib/dates` helpers. Types: `@/lib/types`.
+    95→    95→- Export helpers: `@/lib/export` (downloadMarkdown, downloadJson, printHtml, esc, miniMarkdownToHtml); server markdown via `exportApi.markdown(scope)`.
+    96→    96→- Mobile-first responsive (bottom nav ~56px + safe area already handled by shell; add pb-24 on mobile content — shell already pads).
+    97→    97→- Views must be "use client" and default-export nothing; export named function (DashboardView, TasksView, RoutineView, GoalsView, NotesView, DiaryView, SettingsView).
+    98→    98→- DO NOT create new pages/routes. DO NOT modify page.tsx / app-shell.tsx / api.ts (report needed changes in worklog instead).
+    99→    99→
+   100→   100→---
+   101→   101→Task ID: 2
+   102→   102→Agent: full-stack-developer
+   103→   103→Task: Backend — implement all REST API routes under src/app/api/ (todos, habits, routine, notes, journal, goals, stats, settings, export) exactly per the API contract, with zod validation, local day-key semantics, and computed streaks.
+   104→   104→
+   105→   105→Work Log:
+   106→   106→- Read worklog.md contract, src/lib/types.ts, src/lib/api.ts, prisma/schema.prisma; verified Prisma client + empty SQLite db and zod v4 API compatibility (partial/extend/coerce/default/refine).
+   107→   107→- Created server lib: src/lib/server/http.ts (json helper, HttpError, readJsonBody, parseOrThrow, handleApiError → 400 validation / 404 not found / 500 catch), src/lib/server/daykeys.ts (pure UTC-epoch day-key math: todayKey, isValidDayKey, addDaysToKey, lastNDayKeys, isoWeekdayOfKey, weekStartKeyOf, computeStreak, dayOfYearOfKey — day keys never pass through timezone-shifting Date conversions), src/lib/server/schemas.ts (all shared zod schemas incl. dayKeySchema + isoDateTimeField), src/lib/server/service.ts (getSettings upsert, fetchHabits/RoutineWithLogs, isRoutineDay, serializeTodo/Habit/RoutineTask/Note/JournalEntry/Goal — exact contract shapes with computed streak/doneToday/completionsThisWeek), src/lib/server/export-markdown.ts (markdown builder).
+   108→   108→- Implemented all routes with `export const dynamic = "force-dynamic"` and Next.js 16 async `params`:
+   109→   109→  - api/todos (GET ?status=active|completed|all&category= with contract ordering: dueDate ASC nulls-last → priority urgent>high>medium>low → createdAt DESC; completed → completedAt DESC; POST), api/todos/[id] (PATCH incl. {completed} setting/clearing completedAt, DELETE), api/todos/clear-completed (POST).
+   110→   110→  - api/habits (GET with 60-day logs + computed streak/doneToday/completionsThisWeek — streak computed from ALL logs so it stays exact; POST appends sortOrder), api/habits/[id] (PATCH/DELETE), api/habits/[id]/toggle (POST {date} → {done, streak}).
+   111→   111→  - api/routine (GET sections morning→afternoon→evening→anytime then sortOrder, doneToday+streak computed; POST), api/routine/[id], api/routine/[id]/toggle (POST {date} → {done, streak}).
+   112→   112→  - api/notes (GET pinned-first then updatedAt DESC; POST), api/notes/[id] (PATCH/DELETE).
+   113→   113→  - api/journal (GET ?limit= default 50 date DESC; POST = UPSERT by unique date key — absent fields keep values, explicit null clears), api/journal/[id] (GET: date-key param → entry|null, else by id; DELETE by id), api/journal/date/[date] (GET entry|null, 400 on malformed key).
+   114→   114→  - api/goals (GET ?status=&period= — absent/all returns everything ordered active-first then createdAt DESC; POST with defaults period=weekly, status=active, startDate=today), api/goals/[id] (PATCH with progress clamped 0..target + auto-complete / auto-revert logic; DELETE), api/goals/[id]/progress (POST {delta} clamped, auto-complete), api/goals/reset-period (POST {period?} — empty body resets all non-archived goals).
+   115→   115→  - api/stats (GET → DashboardStats: today block, 7-day week DayStats oldest→newest, top-4 active goals by progress ratio, ≤6 upcoming todos due within 7 days incl. today, ≤6 todayHabits, ≤3 recentJournal, quote rotating from 15-quote array by day-of-year; score formula exactly per contract with +5 journal bonus capped at 100).
+   116→   116→  - api/settings (GET upserts single row id="app" and returns the 5 AppSettings fields; PATCH partial).
+   117→   117→  - api/export (GET ?format=markdown|json&scope=… — markdown returns text/markdown with sections per entity; json returns full backup of all tables + settings).
+   118→   118→- Deleted the placeholder src/app/api/route.ts (Hello-world stub, not part of the contract).
+   119→   119→- `bun run lint` → 0 errors. Curl-verified: todos CRUD + toggle + clear-completed + 400/404 paths, habits toggle/streak (2-day streak ending today), routine toggle, journal upsert (field preservation), goals progress clamping/auto-complete/revert + reset-period, settings GET/PATCH, stats shape + score math (50 base + 5 journal bonus = 55 with test data), markdown + json export. All test rows deleted afterwards — every table back to 0 rows, settings defaults restored.
+   120→   120→
+   121→   121→Stage Summary:
+   122→   122→- Backend complete: 20 route files + 5 server-lib modules. All responses match src/lib/types.ts exactly (serializers convert Prisma Date → ISO strings). Frontend api.ts client works unmodified.
+   123→   123→- Notes for frontend agents:
+   124→   124→  - Semantics chosen where contract was open: todosTotal(day) in stats = todos completed that day + still-active todos that are undated or due on/before that day; routine stats count only tasks scheduled that day (via `days` ISO weekdays), while routine doneToday in list responses = log exists today (per spec); goals default period on create = "weekly"; reset-period with empty body (what api.ts sends) resets ALL non-archived goals.
+   125→   125→  - POST /api/todos & friends return 201 on create; errors are always `{ error: string }` with 400/404/500.
+   126→   126→  - Journal GET single: /api/journal/{YYYY-MM-DD} works (returns entry or null); /api/journal/date/{YYYY-MM-DD} also exists as an explicit variant.
+   127→   127→  - Export scope "routine" includes habits + routine tasks in the markdown; json format always returns the full backup.
+   128→   128→- Deviations from contract: none. (Extra: routine toggle also returns `streak` alongside `done` — ToggleResult.streak is optional in types.ts.)
+   129→   129→
+   130→   130→---
+   131→   131→Task ID: 3-b
+   132→   132→Agent: frontend-developer
+   133→   133→Task: Frontend — Routine view (src/components/app/views/routine-view.tsx) + Goals view (src/components/app/views/goals-view.tsx)
+   134→   134→
+   135→   135→Work Log:
+   136→   136→- Read worklog contract, types.ts, api.ts, dates.ts, store.ts, all shared components and shadcn primitives first. Replaced only the two stub view files (named exports `RoutineView` / `GoalsView`, both "use client", TanStack Query + typed api client + sonner toasts).
+   137→   137→- RoutineView: ViewHeader + date chip + contextual Add button (label follows active tab); Tabs Habits (default) | Schedule; queries ["habits"] + ["routine"].
+   138→   138→  - Habits tab: gradient today banner (ProgressRing + "X of Y habits done today" + ProgressBar + microcopy, "Perfect day! 🎉" when all done); habits grouped under Morning ☀️ / Afternoon 🌤️ / Evening 🌙 / Anytime 🕒 headers; cards with emoji in habitRingStyles ring, name, 🔥 streak (hidden at 0), reminderTime chip, WeekDots (last 7 days from logs), kebab (Edit/Delete with AlertDialog), size-11 circular check that fills with habitDotStyles color + zoom-in Check animation; optimistic habitsApi.toggle(id, todayKey()) with rollback; streak toast "🔥 N day streak!" only when the returned streak beats the pre-toggle value. New/Edit habit Dialog: name, 24-emoji picker grid, 6 HABIT_COLORS swatches, TIME_OF_DAY segmented, optional time input. Empty state (Repeat icon) with "Create your first habit" + "Add starter habits" (creates the 3 spec'd starters).
+   139→   139→  - Schedule tab: Morning 🌅 / Afternoon ☀️ / Evening 🌙 Cards with "x/y done" + mini ProgressBar; task rows with optimistic circular toggle, emoji, strikethrough when done, time chip, M T W T F S S day-dots dimming non-selected weekdays (parsed from days CSV), Flame streak badge when >1, kebab Edit/Delete; client-side weekday filter (weekdayOfKey) + "+ N blocks not scheduled today" hint + "Nothing scheduled today" panel. New/Edit block Dialog: name, emoji text input w/ preview (default 🌅), section Select, optional time, weekday multi-select chips (default all, ≥1 enforced).
+   140→   140→- GoalsView: ViewHeader with Reset dropdown + New goal; query ["goals"] → goalsApi.list({status:"all"}), filtering client-side. Summary strip: Active / Completed (all time) / Completed this week (dateToKey(new Date(updatedAt)) >= weekStartKey(today)). Tabs All|Daily|Weekly|Monthly (segmented control) + Active/Completed/Archived status chips (default Active, re-click clears).
+   141→   141→  - GoalCard: category emoji chip, title, period badge (emerald/amber/violet soft), line-clamp description, ProgressBar colored by period, "N / M unit · P%" tabular-nums, due chip (friendlyDay; destructive when overdue), Done badge w/ CircleCheck / Archived muted badge; completed cards emerald-bordered w/ soft bg; size-11 circular Minus/Plus (disabled at 0/target) → optimistic goalsApi.increment(id, ±1) with server status rules mirrored client-side; "🎉 Goal completed!" toast when crossing to target. Kebab: Edit / Mark complete (update {progress: target} + celebration toast) / Archive/Unarchive / Delete (AlertDialog).
+   142→   142→  - New/Edit goal Dialog: title, description, category Select (📚/💪/💼/🌿/💰/✨), period segmented with GOAL_PERIODS hints, target (min 1) + unit, start date (default today) + optional end date. Empty state (Target icon) + "Add sample learning goals" (2 spec'd samples). Filtered-empty state with "Clear filters".
+   143→   143→- Reset note (deviation from task spec): api.ts has no `resetPeriod(period)` — only `resetPeriodProgress()` which resets ALL non-archived goals. Implemented per-period reset by batching `goalsApi.update(id, {progress: 0})` over goals of the chosen period (server auto-reverts status to active); menu offers daily/weekly/monthly (spec listed daily/weekly — monthly added since GOAL_PERIODS has three).
+   144→   144→- All mutations invalidate their own key + ["stats"] (keeps dashboard fresh); optimistic updates with rollback + toast.error(e.message); skeletons while loading, retry card on error; 44px touch targets, focus-visible rings, aria-pressed/aria-label on icon-only controls, rounded-2xl, tabular-nums, no indigo/blue.
+   145→   145→- Verified end-to-end with a headless browser (agent-browser): habits starter flow → grouped cards → 3 optimistic toggles → "Perfect day! 🎉"; habit edit/delete via kebab + AlertDialog; schedule block create/toggle; goals sample flow → increment → Mark complete celebration → summary chips (1/1/1) → reset daily w/ confirm → goal edit persisted; mobile 390×844 render check; zero console/page errors. Also curl-verified habits/routine/goals mutation flows (increment clamp/auto-complete, PATCH progress-0 revert). All test data deleted afterwards (habits/routine/goals back to []).
+   146→   146→- `bun run lint` → 0 errors; `bunx tsc --noEmit` → 0 errors in the two view files (pre-existing errors in examples/, skills/, src/lib/dates.ts, src/lib/notifications.ts remain — foundation files, not touched).
+   147→   147→
+   148→   148→Stage Summary:
+   149→   149→- Routine + Goals views complete and E2E-verified; no changes needed to shared components, api.ts, or types.ts. Remaining stubs: dashboard-view, tasks-view (3-a), notes-view, diary-view, settings-view (3-c).
+   150→   150→
+   151→   151→---
+   152→   152→Task ID: 3-a
+   153→   153→Agent: frontend-developer
+   154→   154→Task: Frontend — Dashboard view + Tasks view (src/components/app/views/dashboard-view.tsx, tasks-view.tsx)
+   155→   155→
+   156→   156→Work Log:
+   157→   157→- Read worklog contract, types.ts, api.ts, dates.ts, store.ts, all shared components, shadcn ui components, app-shell/page.tsx; curl-verified /api/stats & /api/todos response shapes before coding.
+   158→   158→- dashboard-view.tsx (`DashboardView`, "use client"):
+   159→   159→  - Data: useQuery(["stats","dashboard"], statsApi.dashboard). Loading = skeleton layout mirroring the real sections; error = EmptyState retry card; empty-app check (todosTotal=0 && habitsTotal=0 && activeGoals=0 && routineTotal=0) → onboarding card ("Welcome to Momentum 👋", Add first task → setQuickAddOpen(true), Add starter habits → mutation creating the 3 spec'd habits via habitsApi.create then invalidate + toast, Set a goal → setView("goals")) + quote card.
+   160→   160→  - Header: greeting() + formatKeyLong(todayKey()) + day-score chip (Zap, {score}%). Quote card with emerald/teal gradient border (p-[1.5px] wrapper) + Sparkles.
+   161→   161→  - Stat grid (2 cols mobile / 4 sm+): ProgressRing score card; Tasks today & Habits cards ({done}/{total} + ProgressBar); Best streak card with Flame (orange when >0).
+   162→   162→  - "This week": 7 pure-div bars (height = max(4,score)%, today = gradient + highlighted label), title attr tooltips with per-day detail, day-letter labels — no recharts.
+   163→   163→  - Overdue banner (destructive-soft, role=alert) when overdueCount>0 → "Review" button setView("tasks").
+   164→   164→  - Today's focus: upcomingTodos (≤6) rows — priority dot, animated custom check button, formatDueLabel (red when overdue), optimistic todosApi.update toggle with cache rollback + strike-through transition; "See all" → tasks.
+   165→   165→  - Habits today: horizontal scroll chips (emoji, name, check state, WeekDots from habit.logs over lastNDays(7)); tap = optimistic habitsApi.toggle(id, todayKey()); "See all" → routine.
+   166→   166→  - Active goals (≤4): cards with ProgressBar, {progress}/{target}{unit} · %, period badge, tap → goals view. Recent journal: mood emoji (MOODS lookup) + friendlyDay + 2-line clamp preview, "Open diary" → diary.
+   167→   167→  - framer-motion used lightly: FadeIn wrapper (mount-only fade/slide, small stagger delays).
+   168→   168→- tasks-view.tsx (`TasksView`, "use client"):
+   169→   169→  - Data: useQuery(["todos","full"]) — IMPORTANT: queryFn fetches active + completed in parallel via todosApi.list({status:"active"}) + todosApi.list({status:"completed"}) and merges, because api.ts strips status "all" (no param) and the backend then defaults to active-only (verified by curl). All filtering/grouping is client-side for snappy UX. Mutations invalidate ["todos"] + ["stats"] prefixes.
+   170→   170→  - ViewHeader "Tasks" + "{doneToday} done today · {overdueCount} overdue" (completedAt local-day computed via dateToKey) + "Clear completed" outline button (shown when completed exist) → AlertDialog confirm → todosApi.clearCompleted.
+   171→   171→  - Quick add card: input (Enter or + button), cycling priority chip (low→medium→high→urgent, colored) and due chip (No date→Today→Tomorrow) — due dates built as local-midnight ISO via new Date(y,m,d).toISOString() so local day keys round-trip correctly.
+   172→   172→  - Filter Tabs (All/Today/Upcoming/Overdue/Completed) + scrollable category chips (All + TODO_CATEGORIES with emoji, aria-pressed).
+   173→   173→  - Grouping: Overdue (red-tinted rows + destructive label) / Today / Tomorrow / Upcoming / No date, sticky group labels (top-16 under mobile bar, top-0 desktop, bg-card/95 backdrop-blur); Completed as collapsed section (count + inline Clear, chevron rotate, max-h-72 scrollable, sorted completedAt desc, muted + line-through).
+   174→   174→  - Rows: custom animated check button (role=checkbox, 44px hit area), title with animated strike (line-through + decoration-transparent→color transition), notes preview (FileText, line-clamp-1), PriorityBadge + CategoryBadge + due chip (Clock; amber today / red overdue / muted future, formatDueLabel) + reminder bell; kebab DropdownMenu (Edit, Delete w/ AlertDialog confirm) with 44px touch target.
+   175→   175→  - Edit dialog: title, notes, priority/category Selects, due date + time inputs (combined → local ISO; clearing date → null), reminder datetime-local (ISO on save, empty → null); remounts per todo via key.
+   176→   176→  - Empty states per tab (+ category-scoped copy when a category filter yields nothing), action focuses the quick-add input.
+   177→   177→- OUT-OF-SCOPE FIX (1 file, documented): src/lib/notifications.ts line 100 referenced undefined `last` (pre-existing Task-1 bug; also visible in tsc). It crashed the whole app (Next error overlay) as soon as any todo was due today after 9 AM — i.e. instantly triggered by the new Tasks view. Applied minimal fix: compute `const last = notified[id] ?? 0` inside the final else branch. No behavior change beyond un-crashing.
+   178→   178→- Verified end-to-end with headless browser (agent-browser): onboarding card + starter-habit mutation (+toast, streak=1 in API), habit chip optimistic toggle, dashboard sections/banners; tasks: quick add (Enter + button), priority/due cycling, grouping (Today/Tomorrow/Overdue red tint/No date/Completed), optimistic toggle both directions, edit dialog (title/notes/priority save, date+time combine → "Today · 2:30 PM" chip, date clear → null), kebab Edit/Delete dialogs, tabs (Today/Completed/Overdue), category chips, clear-completed, per-tab/category empty states, mobile 390x844 + desktop 1280 layouts. `bun run lint` → 0 errors. tsc: no errors from these files (pre-existing errors remain in examples/, skills/, dates.ts weekStartsOn typing, notifications.ts — now fixed).
+   179→   179→- Workarounds/decisions for future agents:
+   180→   180→  - Query-key ownership: ["todos","all"] is owned by notification-engine/bell-menu with queryFn status "active" — do NOT register a different queryFn under that key (TanStack v5 lets the latest observer win the fetcher). Full-list consumers use ["todos","full"] (active+completed merge); invalidate with the ["todos"] prefix to hit both.
+   181→   181→  - Due-day keys on the client must be derived via dateToKey(new Date(iso)) (local), never iso.slice(0,10) (UTC).
+   182→   182→  - "Sticky-feeling" quick-add interpreted as elevated visual card (not position:sticky) to avoid z/offset conflicts with the spec'd sticky day-group labels.
+   183→   183→  - Sticky group labels use top-16 lg:top-0 (mobile app-header ≈65px) instead of top-0.
+   184→   184→
+   185→   185→Stage Summary:
+   186→   186→- Dashboard + Tasks views complete and browser-verified; both are "use client", use the typed api client, TanStack Query with optimistic updates, sonner toasts, shared components, emerald/teal theme (no indigo/blue). One out-of-scope crash fix in lib/notifications.ts (undefined `last`). Demo data left in DB (3 starter habits + 1 task due today 5 PM) so the preview shows a live dashboard. NEXT: 3-b (routine), 3-c (goals/notes/diary/settings) should follow the query-key + day-key conventions above.
+   187→   187→
+   188→   188→---
+   189→   189→Task ID: 3-c
+   190→   190→Agent: frontend-developer
+   191→   191→Task: Frontend — Notes view (notes-view.tsx), Diary view (diary-view.tsx), Settings view (settings-view.tsx)
+   192→   192→
+   193→   193→Work Log:
+   194→   194→- Read worklog contract, types.ts, api.ts, dates.ts, store.ts, export.ts, notifications.ts, all shared components, shadcn ui primitives, goals-view (style reference); curl-verified /api/notes, /api/journal, /api/settings, /api/export shapes before coding. Replaced ONLY the three stub files (named exports NotesView / DiaryView / SettingsView, all "use client", TanStack Query + typed api client + sonner toasts).
+   195→   195→- notes-view.tsx:
+   196→   196→  - Data: useQuery(["notes"], notesApi.list). Loading = masonry skeleton; error = retry card. Mutations invalidate ["notes"] + ["stats"].
+   197→   197→  - ViewHeader "Notes" / "Quick capture & ideas" + New note button + Download dropdown (Export Markdown / Export PDF) with per-action spinner + loading→success/error toasts.
+   198→   198→  - Search Input (Search icon, X clear button) filtering title+content+tag client-side; horizontal-scroll tag chips derived from existing tags ("All (n)" + "# tag (n)", re-click to clear); server already returns pinned-first/updatedAt-DESC order.
+   199→   199→  - Masonry grid `columns-1 sm:columns-2 gap-4` with `break-inside-avoid` cards; NOTE_COLORS → soft tailwind styles (yellow→amber-500/10 etc., default→bg-card). Card = role=button keyboard-accessible (Enter/Space), Pin icon filled amber when pinned, MarkdownContent preview line-clamp-4, # tag Badge, "Edited Xm ago" relative time + kebab (Pin/Unpin, Edit, Delete w/ AlertDialog).
+   200→   200→  - Editor Dialog (create + edit): title Input, content Textarea rows 10 + "Markdown supported" hint, tag Input with datalist of existing tags, 6 color swatches (scale+ring when selected), pin Switch, Preview toggle (Eye/Pencil) rendering MarkdownContent live. Explicit Save (no autosave) → create/update → invalidate + toast.
+   201→   201→  - Empty states: StickyNote "No notes yet" (+ New note action) and Search "No matching notes" (+ Clear filters action).
+   202→   202→  - PDF export builds per-note HTML from the loaded notes query (h3-styled title + tag line + miniMarkdownToHtml(content) + hr) → printHtml("Notes", html); markdown export → exportApi.markdown("notes") → downloadMarkdown("momentum-notes.md"). (Interpreted the spec's "fetch markdown, convert with miniMarkdownToHtml" as building the specified per-note HTML from the same client data — the server markdown's `####` headings and `---` rules don't map to the requested h3/hr output.)
+   203→   203→  - BUG FIXED DURING E2E: DropdownMenuContent is DOM-portaled but remains a React-tree child of the clickable Card, so synthetic clicks on menu items bubbled up and ALSO opened the edit dialog (pin/delete clicks opened the editor with a stale note). Fix: `onClick={(e) => e.stopPropagation()}` on DropdownMenuContent (kebab trigger Button already had it). DiaryView's timeline kebab is a flex sibling of the expand button, so it's unaffected.
+   204→   204→- diary-view.tsx:
+   205→   205→  - Data: useQuery(["journal"], () => journalApi.list({ limit: 366 })) — single source for editor + timeline + streaks (current entry found by date key). Shared useQuery(["settings"], settingsApi.get) only to feed the calendar's weekStartsOn. Mutations invalidate ["journal"] + ["stats"].
+   206→   206→  - Hero editor Card: date nav row (prev-day ChevronLeft, big date label = Popover+Calendar trigger showing "Today · " prefix + formatKeyLong on sm+ / formatKeyLabel on mobile, next-day ChevronRight disabled when tomorrow would be future; Calendar disabled after today, weekStartsOn from settings); MOODS 5-emoji selector (selected scales-110 + primary ring; re-click deselects); Energy Slider 1–5 (Low/High labels, x/5 readout, default 3); headline Input ("What's the headline of your day?"); gratitude Input with Heart icon; content Textarea rows 8 + markdown hint; Save/Update entry button (Save→"Diary saved", Update→"Diary updated" toasts) + transient "Saved ✓" chip (3s) + "Entry exists for this day" hint. Form syncs from the list entry via a date+updatedAt signature (no clobbering mid-typing; empty-day guard toast + textarea focus).
+   207→   207→  - Stat chips above editor: total entries, this-calendar-month count, longest consecutive-day streak (client-side walk over date keys).
+   208→   208→  - Timeline "Past entries": entries date DESC grouped under monthLabel headers; rows show mood emoji (or ·), formatKeyLabel + weekday + Today badge, title-or-60-char preview; grid-template-rows accordion expand (ChevronDown rotate) revealing mood/energy badges, full MarkdownContent, gratitude heart line; kebab: "Open this day" (loads into editor + smooth-scrolls to top), "Delete entry" (AlertDialog → journalApi.remove).
+   209→   209→  - Empty state: BookOpen "Your story starts today" + "Write today's entry" (sets date=today, scrolls up, focuses content textarea via ref).
+   210→   210→  - Exports: header Download dropdown → markdown (exportApi.markdown("journal") → momentum-diary.md) and PDF (per entry, date-ascending: date heading + mood emoji + energy + ♥ gratitude + miniMarkdownToHtml(content) + hr → printHtml("Daily Diary", html)); busy spinners + toasts.
+   211→   211→- settings-view.tsx:
+   212→   212→  - Data: useQuery(["settings"], settingsApi.get); single updateSettings mutation with optimistic cache patch + rollback, success message per action, invalidates ["settings"], toasts on success/error.
+   213→   213→  - Notifications card: "Browser notifications" Switch — on enable first awaits requestNotificationPermission() (denied/unsupported → error toast + switch stays off; granted → enable + success toast); live "Permission: granted/denied/default/not supported" status line + "Reminders fire while the app is open" hint; destructive helper banner when permission is blocked. "Sound effects" Switch.
+   214→   214→  - Preferences card: "Week starts on" Select (Monday/Sunday → weekStartsOn 1/0) and "Start on view" Select (Dashboard/Tasks/Routine/Goals/Notes/Diary; unknown stored values get a dynamic fallback option) — both with hint lines.
+   215→   215→  - Data & export card: 2-col grid of 6 busy-aware outline buttons w/ icon tiles (FileText export-all-md → momentum-export.md, DatabaseBackup JSON backup → momentum-backup.json, Printer full PDF via exportApi.markdown("all") + miniMarkdownToHtml + printHtml("Complete Export"), BookOpen diary-only, ListTodo tasks-only, StickyNote notes-only); per-button "Preparing…" spinner + loading/success/error toasts.
+   216→   216→  - About card: emerald→teal gradient Zap tile, Momentum + v1.0 badge, one-liner, tech chips (Next.js, Prisma, Tailwind).
+   217→   217→- E2E-verified with agent-browser (headless): notes — search (match/no-match/clear-filters), tag chips, card→editor dialog open, Preview toggle rendering markdown, create note (tag/color/pin), kebab pin/unpin ordering, delete w/ AlertDialog, both exports (toasts + clean print-root teardown); diary — prev-day nav, calendar jump, mood/energy/headline/gratitude edit + save + "Update" flip + Saved chip, timeline expand (badges/markdown/gratitude), "Open this day", delete entry (AlertDialog), streak chips updating 2→1, both exports; settings — all switches/selects round-tripped against the API then restored, permission-denied path (headless auto-deny → switch stays off + error toast), all 6 exports. Mobile 390×844 + desktop 1280×800 + dark-mode screenshots for all three views; zero page/console errors.
+   218→   218→- `bun run lint` → 0 errors. `bunx tsc --noEmit` → no errors in the three view files (pre-existing errors remain in examples/, skills/, src/lib/dates.ts weekStartsOn typing — foundation files, not touched). dev.log clean.
+   219→   219→- Demo data left per main agent's request: notes = "Welcome to Momentum 🚀" (teal, tag guide, pinned, markdown body explaining note features) + "Grocery list" (yellow, tag errands, unpinned); journal = 1 entry for today (mood good, energy 4, title "Setting up Momentum", gratitude line); settings back to server defaults (notificationsEnabled true, sound true, weekStartsOn 1, defaultView dashboard).
+   220→   220→- Notes for future agents:
+   221→   221→  - React portals: menu/dialog content portaled into body still bubbles SYNTHETIC events up the React tree — any clickable wrapper around a DropdownMenu/Popover must stopPropagation on the trigger AND the menu content (or restructure so the menu isn't inside the clickable element, as diary-view's timeline row does).
+   222→   222→  - Query keys: ["notes"] and ["journal"] are the canonical keys (also used by quick-add); ["settings"] is shared between SettingsView and DiaryView (calendar week start) — invalidate with the plain prefix.
+   223→   223→  - journalApi.list() defaults to limit 50; DiaryView passes 366 so streak/month stats and the timeline see a full year.
+   224→   224→
+   225→   225→Stage Summary:
+   226→   226→- Notes + Diary + Settings views complete and browser-verified; all 7 views now live, app fully functional. No changes needed to shared components, api.ts, types.ts, page.tsx or app-shell. Demo data seeded for preview (2 notes + 1 diary entry today).
+   227→   227→
+   228→   228→---
+   229→   229→Task ID: 4
+   230→   230→Agent: main
+   231→   231→Task: End-to-end QA with agent-browser — verify all views, interactions, exports, mobile, dark mode
+   232→   232→
+   233→   233→Work Log:
+   234→   234→- Verified dashboard: greeting, quote, stat cards, 7-day week chart, overdue banner, today's focus with optimistic todo toggling, habit chips with toggling, goals cards, journal previews, onboarding empty state logic.
+   235→   235→- Tasks view: quick-add input (Enter submit, priority/due chips), 5 filter tabs + category chips, day-grouped list w/ sticky labels, edit dialog (title/notes/priority/category/due+time combine → ISO, reminder), kebab Edit/Delete, completed collapse + Clear completed. Task "Write QA report for Momentum v2" created/edited via UI and verified server-side.
+   236→   236→- Routine view: habits tab (progress banner, grouped cards, streak flames 🔥, WeekDots, big check toggle w/ optimistic update + streak toast), schedule tab (empty state), New habit/New block dialogs verified.
+   237→   237→- Goals view: stat chips, period tabs + status chips, goal create dialog (created "Study Spanish vocabulary" learning goal), optimistic ± increment verified against server (3/10 words 30% — UI === DB).
+   238→   238→- Notes view: masonry grid, search, tag chips, color cards, pin, editor dialog w/ markdown preview toggle; created "Ideas for side project" note — markdown (bold/italic/lists) renders correctly.
+   239→   239→- Diary view: date navigation (prev day, next disabled on future), mood selector, energy slider, save/upsert (saved entry for yesterday), stats chips (entries/this month/streak), timeline with accordion.
+   240→   240→- Settings view: notification permission flow (request → denied in headless → helpful blocked banner), sound switch, week-start + default-view selects, all 6 export buttons present; export APIs curl-verified: markdown scope=all (well-structured sections: Tasks/Routine/Notes/...) and JSON backup (all tables + counts).
+   241→   241→- Bell menu: shows "DUE TODAY · 1" + "HABITS REMAINING · 1" correctly from live data.
+   242→   242→- Quick Add dialog (mobile): Task tab with priority + due chips → created "Plan weekend hiking trip" high/tomorrow, verified on server + dashboard.
+   243→   243→- Mobile 390×844: top bar, bottom 5-tab nav, More sheet (Notes/Diary/Settings + theme), no overlap/cut-off. Desktop 1280: sidebar + content max-w-4xl. Dark mode verified.
+   244→   244→- Fixed: (a) api.ts todos list now sends status=all explicitly (backend default was active-only); (b) dates.ts date-fns `Day` typing errors; (c) added SheetDescription to More sheet (killed the Radix a11y warning); (d) subagent 3-a had fixed a pre-existing crash in notifications.ts (undefined `last`).
+   245→   245→- VLM visual review of 5 key screenshots (desktop light/dark, mobile dashboard/quick-add): "polished, production-ready, no critical bugs".
+   246→   246→- Final state: lint 0 errors, tsc 0 errors in src/, 0 page errors, 0 console warnings after full reload.
+   247→   247→
+   248→   248→Stage Summary:
+   249→   249→- App is fully functional and browser-verified end-to-end. Demo data intentionally present: 3 habits (2 done today), 2 active tasks + 1 completed, 1 learning goal (3/10), 3 notes, 2 diary entries. Remaining known-minor: none blocking. Next: Task 5 cron job + final handover.
+   250→   250→
+   251→   251→---
+   252→   252→Task ID: R2-2
+   253→   253→Agent: main (cron review round 2)
+   254→   254→Task: Round 2 foundation — FocusSession model, /api/focus + /api/insights endpoints, nav/types/api-client updates for Focus & Insights views
+   255→   255→
+   256→   256→Work Log:
+   257→   257→- QA health check: all 7 views + 0 page errors (stable from Round 1).
+   258→   258→- Added FocusSession Prisma model (id, taskId?, label?, minutes, startedAt, endedAt) + indexes; pushed schema, regenerated client.
+   259→   259→- types.ts: added FocusSession, FocusSessionInput, FocusStats, InsightsData, DayStat unchanged; ViewId now includes "focus" and "insights".
+   260→   260→- api.ts: added statsApi.insights() → GET /api/insights, focusApi.stats() → GET /api/focus, focusApi.log() → POST /api/focus.
+   261→   261→- nav-config.ts: NAV_ITEMS now 9 entries (added Focus=Timer icon after Dashboard, Insights=BarChart3 after Diary); MOBILE_MORE_NAV = [focus, insights, notes, diary, settings].
+   262→   262→- page.tsx: registered FocusView + InsightsView lazy dynamic imports + view switch cases.
+   263→   263→- Created src/app/api/focus/route.ts (GET FocusStats today/week/lastWeek minutes + session counts; POST logs a session — validates minutes 1..240, optional taskId must exist; startedAt/endedAt default to now−minutes/now).
+   264→   264→- Created src/app/api/insights/route.ts (GET InsightsData: 84-day heatmap with daily scores reusing stats formula, 30-day todosTrend, habitConsistency pct+streak, moodDistribution, focus minutes today/week/lastWeek/avgSession, totals incl. focusHours + bestHabitStreak).
+   265→   265→- CRITICAL INFRA FIX: Prisma client regeneration wasn't picked up by the running Turbopack dev server (stale compiled @prisma/client + globalThis singleton). Fixed db.ts to import from '.prisma/client' (statically analyzable CommonJS entry) with a versioned global cache key (prisma:v4). Also had to restart the dev server (Turbopack cache was corrupted after .next/dev removal) — restarted via double-fork pattern `(setsid bun run dev &)` which survives tool-session cleanup. All endpoints verified: focus GET/POST, insights (84 heatmap days, correct totals), stats, todos — all 200.
+   266→   266→- Stub views created: focus-view.tsx, insights-view.tsx (named exports FocusView / InsightsView).
+   267→   267→
+   268→   268→Stage Summary:
+   269→   269→- Foundation ready for view agents. Backend contract for Focus + Insights complete and curl-verified. Dev server healthy on port 3000 (restarted, detached). NOTE for all agents: if Prisma client seems stale after schema changes, bump PRISMA_CACHE_KEY in src/lib/db.ts.
+   270→   270→
+   271→   271→---
+   272→   272→Task ID: R2-3b
+   273→   273→Agent: frontend-developer
+   274→   274→Task: Frontend — Insights view (src/components/app/views/insights-view.tsx)
+   275→   275→
+   276→   276→Work Log:
+   277→   277→- Read worklog (incl. R2-2 /api/insights contract), types.ts, api.ts, dates.ts, shared components, dashboard-view (style reference), shadcn primitives; curl-verified /api/insights shapes (84 heatmap days oldest-first, 30-day trend oldest-first, totals 1/2/2/0.4) before coding. Replaced ONLY the insights-view.tsx stub (named export InsightsView, "use client", useQuery ["insights"] → statsApi.insights; skeleton loading; EmptyState retry on error).
+   278→   278→- Totals strip: 4 compact cards (grid-cols-2 sm:grid-cols-4) — Tasks completed (CheckCircle2/emerald), Diary entries (BookOpen/amber), Habit checks (Repeat/teal), Focus hours (Timer/violet); tinted icon tile + big tabular-nums number + small label.
+   279→   279→- Activity heatmap (star): GitHub-style grid, 12-13 week columns × 7 rows (Mon-Sun), first column padded with null cells via weekdayOfKey(heatmap[0].date)-1; exact tailwind levels 0→bg-muted, 1-24→emerald-500/25, 25-49→/45, 50-74→/70, 75+→emerald-500; today = ring-2 ring-primary ring-offset-1 ring-offset-card; month labels (Jun/Jul/Aug) above columns on month change; M/W/F row hints; per-cell native title tooltip "MMM d · score N · X tasks, Y habits, Z routine"; legend "Less ▢▢▢▢ More"; overflow-x-auto no-scrollbar w-max (fits 390px, no overflow); side/below chips: Longest streak (consecutive score>0), Active days N/84, Avg score; all-zero → hint "Start checking things off to fill your heatmap."
+   280→   280→- Tasks trend: pure inline SVG (no chart libs) — viewBox 0 0 100 40 + preserveAspectRatio="none" + vector-effect="non-scaling-stroke" (uniform 2px primary line, 1px faint gridlines), Catmull-Rom smoothed path clamped to plot band, linearGradient area (currentColor, 0.16→0.02); points at cell centers with 30 CSS-grid hover zones (title tooltips + group-hover guideline/dot — note Tailwind wraps hover variants in @media(hover:hover), false in headless test browser, works on real pointers); axis labels rendered as HTML (never distorted): y-gutter yMax/mid/0 (odd maxima bumped +1, mid hidden when yMax<2 → integer labels only) + 5 date labels (MMM d); chips Total / Best day / Average N.N/day (tabular-nums).
+   281→   281→- Habit consistency: rows with emoji in habitRingStyles ring, name, "🔥 N" streak when >1, right pct + h-1.5 ProgressBar colored via habitDotStyles; max-h-[26rem] divide-y overflow-y-auto (scrolls past ~8); EmptyState "No habits yet" + Create habits → setView("routine").
+   282→   282→- Mood card (only when moodDistribution.length>0): single rounded-full h-3 stacked bar, fixed great→rough segment order (emerald-500/teal-500/amber-500/orange-500/rose-500) proportional widths + title tooltips; legend rows (dot + emoji + label + count · pct) grid-cols-1 sm:grid-cols-2. Focus card: This week hero (formatMinutes) + delta chip (TrendingUp emerald / TrendingDown red, "+25m vs last week"; "Same as last week" at 0; hint "Use the Focus timer to track deep work." when weekMinutes===0) + Separator + Today / Avg session tiles. Footer note: "Insights update as you use Momentum — complete tasks, check habits, write your diary."
+   283→   283→- Polish: rounded-2xl p-4 sm:p-5 cards, tabular-nums everywhere, framer-motion FadeIn mount-only stagger (0.05s), aria labels on chart/heatmap regions, emerald positives, no indigo/blue.
+   284→   284→- Verified (agent-browser, isolated --session insights): totals 1/2/2/0.4 === API; heatmap 84 cells / 13 cols, month labels left-aligned to correct columns (labelX===colX), weekday labels pixel-aligned to rows (diffs all 0), today (Aug 27 Thu) at row 4 with ring + correct tooltip; trend 30 zones, y labels 1/0, x labels Jul 29–Aug 27; habit rows 3%/3%/0% (🔥 hidden at streak 1); mood teal 100%; focus 25m + "+25m vs last week"; mobile 390×844 no horizontal overflow, heatmap fits (217px), nav via More sheet works; dark mode OK; zero page errors. VLM review of light-desktop / dark-desktop / mobile screenshots: all PASS (after strengthening today ring + integer y-labels).
+   285→   285→- `bun run lint` → 0 errors; `bunx tsc --noEmit` → no errors in insights-view.tsx. dev.log clean. NOTE: default agent-browser session was being driven concurrently by the parallel focus agent — used a dedicated session; future agents should too when parallel agents are active.
+   286→   286→
+   287→   287→Stage Summary:
+   288→   288→- Insights view complete and browser-verified: totals strip, 12-week GitHub-style activity heatmap with today highlight + month labels, pure-SVG 30-day tasks trend with hover tooltips, habit consistency bars, mood distribution stacked bar, focus stats with week-over-week delta, footer note. No changes to page.tsx, api.ts, types.ts, shared components or other views. Remaining stub for other agents: focus-view (R2-3a, in progress by parallel agent).
+   289→   289→
+   290→   290→---
+   291→   291→Task ID: R2-3a / R2-4 / R2-5 (combined)
+   292→   292→Agent: main (cron review round 2)
+   293→   293→Task: Focus Timer view completion + styling polish pass + final QA + demo history seeding
+   294→   294→
+   295→   295→Work Log:
+   296→   296→- Focus view (R2-3a): the subagent wrote the full 1173-line focus-view.tsx but died on an infrastructure error before browser QA. I completed its verification: timer start/pause/reset verified (02:00 → 01:57 after 3s, pause→Resume), mode switching (Focus 25/Short 5/Long 15 with color-coded rings), task picker chips, stats strip (today/week minutes with vs-last-week delta), session dots, localStorage persistence ("momentum-focus"), Web Audio chime. Fixed its mobile mode-tab truncation → full labels ("Focus / Short break / Long break") with whitespace-nowrap — VLM-verified to fit at 390px. 0 page errors.
+   297→   297→- Insights view (R2-3b): built by subagent — totals strip, 84-day GitHub-style heatmap (alignment PROGRAMMATICALLY verified: M/W/F label centers 313/345/377 exactly match row centers), pure-SVG 30-day trend chart, habit consistency bars, mood stacked bar, focus stats. 0 errors.
+   298→   298→- Styling polish (R2-4, mandatory): dashboard greeting now emerald→teal gradient text; score chip shadow; week chart gained dashed average marker line + avg% header + today score badge above today's bar + bar hover brightness; stat cards got distinct emerald/teal/orange icon tints + colored progress bars + hover lift (-translate-y + shadow-md); sidebar "Stay consistent" card got soft radial gradient blob. VLM before/after comparison: "Excellent Polish, No Regressions".
+   299→   299→- Demo history seeded (16 days): habit logs ~70% consistency, 8 completed todos spread across past 2 weeks, 3 diary entries with moods/energy, 5 focus sessions (25-50min). Makes Insights/heatmap/trends demonstrable. Current: focus week 125min vs last week 70min.
+   300→   300→- Cleaned subagent test data (Skip-path test todo, test focus sessions).
+   301→   301→- Final QA (R2-5): all 9 views swept (Dashboard, Focus, Tasks, Routine, Goals, Notes, Diary, Insights, Settings) — 0 page errors each; lint 0 errors; tsc clean; dev.log clean; mobile 390px + desktop 1280px verified; dark mode verified.
+   302→   302→
+   303→   303→Stage Summary:
+   304→   304→- Round 2 COMPLETE. App now has 9 views: added Focus (Pomodoro timer with task linking, session logging, sounds, persistence) and Insights (heatmap, trends, consistency, mood, focus analytics). Backend: /api/focus + /api/insights + FocusSession model.
+   305→   305→- INFRA NOTE for future rounds: (1) after `prisma generate`, bump PRISMA_CACHE_KEY in src/lib/db.ts if models seem missing; (2) dev server was restarted this round and runs detached via `(setsid bun run dev &)` — if port 3000 is dead, restart with that exact pattern from /home/z/my-project (plain nohup gets reaped between tool sessions); (3) .next/dev cache deletion requires a server restart — avoid deleting it.
+   306→   306→- Unresolved/next-round candidates: recurring tasks (repeat daily/weekly); subtasks/checklists inside tasks; keyboard shortcuts (Cmd+K quick-add); PWA manifest for install-to-homescreen; weekly review summary email-style export.
+   307→   307→

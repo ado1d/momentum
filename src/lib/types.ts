@@ -5,6 +5,7 @@
 // ─────────────────────────────────────────────────────────────
 
 export type Priority = "low" | "medium" | "high" | "urgent";
+export type RepeatKind = "none" | "daily" | "weekdays" | "weekly" | "monthly";
 export type TodoCategory =
   | "personal"
   | "work"
@@ -38,6 +39,7 @@ export interface Todo {
   category: string;
   dueDate: string | null; // ISO
   reminderAt: string | null; // ISO
+  repeat: RepeatKind;
   completed: boolean;
   completedAt: string | null;
   createdAt: string;
@@ -51,6 +53,7 @@ export interface TodoInput {
   category?: string;
   dueDate?: string | null;
   reminderAt?: string | null;
+  repeat?: RepeatKind;
 }
 
 export interface HabitLog {
@@ -254,6 +257,17 @@ export interface InsightsData {
   };
 }
 
+// ─────────────────────────────────────────────────────────────
+// Global search (command palette)
+// ─────────────────────────────────────────────────────────────
+export interface SearchResults {
+  todos: Todo[]; // active matches first, max 6
+  notes: Note[]; // max 5
+  goals: Goal[]; // max 5
+  journal: JournalEntry[]; // max 5
+  habits: Habit[]; // max 5
+}
+
 export interface DashboardStats {
   today: {
     todosTotal: number;
@@ -294,6 +308,14 @@ export const PRIORITIES: { value: Priority; label: string }[] = [
   { value: "high", label: "High" },
   { value: "medium", label: "Medium" },
   { value: "low", label: "Low" },
+];
+
+export const REPEAT_OPTIONS: { value: RepeatKind; label: string; hint: string }[] = [
+  { value: "none", label: "Never", hint: "One-off task" },
+  { value: "daily", label: "Daily", hint: "Repeats every day" },
+  { value: "weekdays", label: "Weekdays", hint: "Mon to Fri only" },
+  { value: "weekly", label: "Weekly", hint: "Same day each week" },
+  { value: "monthly", label: "Monthly", hint: "Same day each month" },
 ];
 
 export const TIME_OF_DAY: { value: TimeOfDay; label: string; emoji: string }[] = [
