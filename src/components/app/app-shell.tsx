@@ -201,14 +201,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
             <SidebarNav view={view} onNavigate={navigate} />
           </div>
-          <div className="flex items-center justify-between rounded-2xl border bg-card px-3 py-3">
-            <div className="leading-tight">
-              <p className="text-xs font-semibold">Stay consistent</p>
-              <p className="text-[10px] text-muted-foreground">
-                Small steps, big results
-              </p>
+          <div className="relative overflow-hidden rounded-2xl border bg-card px-3 py-3">
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute -right-6 -top-8 size-20 rounded-full bg-primary/10 blur-2xl"
+            />
+            <div className="relative flex items-center justify-between">
+              <div className="leading-tight">
+                <p className="text-xs font-semibold">Stay consistent</p>
+                <p className="text-[10px] text-muted-foreground">
+                  Small steps, big results
+                </p>
+              </div>
+              <ThemeToggle />
             </div>
-            <ThemeToggle />
           </div>
         </aside>
 

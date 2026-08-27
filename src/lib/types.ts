@@ -195,6 +195,65 @@ export interface DayStat {
   score: number; // 0..100
 }
 
+// ─────────────────────────────────────────────────────────────
+// Focus sessions (Pomodoro timer)
+// ─────────────────────────────────────────────────────────────
+export interface FocusSession {
+  id: string;
+  taskId: string | null;
+  label: string | null;
+  minutes: number;
+  startedAt: string; // ISO
+  endedAt: string; // ISO
+  createdAt: string;
+}
+
+export interface FocusSessionInput {
+  taskId?: string | null;
+  label?: string | null;
+  minutes: number;
+  startedAt?: string; // ISO, defaults to now - minutes
+  endedAt?: string; // ISO, defaults to now
+}
+
+export interface FocusStats {
+  todayMinutes: number;
+  weekMinutes: number;
+  lastWeekMinutes: number;
+  totalSessions: number;
+  todaySessions: number;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Insights (trends & analytics)
+// ─────────────────────────────────────────────────────────────
+export interface InsightsData {
+  heatmap: DayStat[]; // last 12 weeks (84 days), oldest first
+  todosTrend: { date: string; count: number }[]; // last 30 days
+  habitConsistency: {
+    id: string;
+    name: string;
+    emoji: string;
+    color: string;
+    pct: number; // 0..100 — last 30 days
+    streak: number;
+  }[];
+  moodDistribution: { mood: Mood; count: number }[];
+  focus: {
+    todayMinutes: number;
+    weekMinutes: number;
+    lastWeekMinutes: number;
+    avgSessionMinutes: number;
+  };
+  totals: {
+    todosCompleted: number;
+    journalEntries: number;
+    habitChecks: number;
+    bestHabitStreak: number;
+    focusHours: number; // rounded to 1 decimal
+  };
+}
+
 export interface DashboardStats {
   today: {
     todosTotal: number;
@@ -278,9 +337,11 @@ export const HABIT_COLORS: HabitColor[] = [
 
 export type ViewId =
   | "dashboard"
+  | "focus"
   | "tasks"
   | "routine"
   | "goals"
   | "notes"
   | "diary"
+  | "insights"
   | "settings";

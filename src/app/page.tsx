@@ -13,6 +13,10 @@ const DashboardView = dynamic(
   () => import("@/components/app/views/dashboard-view").then((m) => m.DashboardView),
   { ssr: false, loading: () => <ViewLoading /> }
 );
+const FocusView = dynamic(
+  () => import("@/components/app/views/focus-view").then((m) => m.FocusView),
+  { ssr: false, loading: () => <ViewLoading /> }
+);
 const TasksView = dynamic(
   () => import("@/components/app/views/tasks-view").then((m) => m.TasksView),
   { ssr: false, loading: () => <ViewLoading /> }
@@ -31,6 +35,10 @@ const NotesView = dynamic(
 );
 const DiaryView = dynamic(
   () => import("@/components/app/views/diary-view").then((m) => m.DiaryView),
+  { ssr: false, loading: () => <ViewLoading /> }
+);
+const InsightsView = dynamic(
+  () => import("@/components/app/views/insights-view").then((m) => m.InsightsView),
   { ssr: false, loading: () => <ViewLoading /> }
 );
 const SettingsView = dynamic(
@@ -70,11 +78,13 @@ export default function Home() {
       ) : (
         <div key={view} className="view-enter">
           {view === "dashboard" && <DashboardView />}
+          {view === "focus" && <FocusView />}
           {view === "tasks" && <TasksView />}
           {view === "routine" && <RoutineView />}
           {view === "goals" && <GoalsView />}
           {view === "notes" && <NotesView />}
           {view === "diary" && <DiaryView />}
+          {view === "insights" && <InsightsView />}
           {view === "settings" && <SettingsView />}
         </div>
       )}

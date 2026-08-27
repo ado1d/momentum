@@ -144,7 +144,7 @@ function DashboardHeader({ score }: { score: number }) {
   return (
     <header className="flex items-center justify-between gap-3">
       <div className="min-w-0">
-        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
+        <h1 className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 bg-clip-text text-xl font-bold tracking-tight text-transparent sm:text-2xl dark:from-emerald-400 dark:via-teal-300 dark:to-emerald-400">
           {greeting()}
         </h1>
         <p className="mt-0.5 text-sm text-muted-foreground">
@@ -152,7 +152,7 @@ function DashboardHeader({ score }: { score: number }) {
         </p>
       </div>
       <div
-        className="flex shrink-0 items-center gap-1.5 rounded-full border border-primary/25 bg-primary/10 px-3 py-1.5 text-sm font-bold tabular-nums text-primary"
+        className="flex shrink-0 items-center gap-1.5 rounded-full border border-primary/25 bg-primary/10 px-3 py-1.5 text-sm font-bold tabular-nums text-primary shadow-sm"
         title="Your productivity score for today"
       >
         <Zap className="size-4" aria-hidden="true" />
@@ -196,12 +196,12 @@ function StatCards({ today }: { today: TodayStats }) {
           sublabel="Score"
         />
       </Card>
-      <Card className="gap-2.5 rounded-2xl p-4">
+      <Card className="gap-2.5 rounded-2xl p-4 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md">
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             Tasks today
           </CardTitle>
-          <ListTodo className="size-4 shrink-0 text-primary/70" aria-hidden="true" />
+          <ListTodo className="size-4 shrink-0 text-emerald-500/80" aria-hidden="true" />
         </div>
         <p className="text-2xl font-bold leading-none tabular-nums">
           {today.todosDone}
@@ -209,14 +209,14 @@ function StatCards({ today }: { today: TodayStats }) {
             /{today.todosTotal}
           </span>
         </p>
-        <ProgressBar value={ratio(today.todosDone, today.todosTotal)} />
+        <ProgressBar value={ratio(today.todosDone, today.todosTotal)} barClassName="bg-emerald-500" />
       </Card>
-      <Card className="gap-2.5 rounded-2xl p-4">
+      <Card className="gap-2.5 rounded-2xl p-4 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md">
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             Habits
           </CardTitle>
-          <Repeat className="size-4 shrink-0 text-primary/70" aria-hidden="true" />
+          <Repeat className="size-4 shrink-0 text-teal-500/80" aria-hidden="true" />
         </div>
         <p className="text-2xl font-bold leading-none tabular-nums">
           {today.habitsDone}
@@ -224,9 +224,9 @@ function StatCards({ today }: { today: TodayStats }) {
             /{today.habitsTotal}
           </span>
         </p>
-        <ProgressBar value={ratio(today.habitsDone, today.habitsTotal)} />
+        <ProgressBar value={ratio(today.habitsDone, today.habitsTotal)} barClassName="bg-teal-500" />
       </Card>
-      <Card className="gap-2.5 rounded-2xl p-4">
+      <Card className="gap-2.5 rounded-2xl p-4 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md">
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             Best streak
@@ -257,37 +257,56 @@ function StatCards({ today }: { today: TodayStats }) {
 
 function WeekCard({ week }: { week: DashboardStats["week"] }) {
   const today = todayKey();
+  const avg = Math.round(week.reduce((s, d) => s + d.score, 0) / Math.max(1, week.length));
   return (
     <Card className="gap-3 rounded-2xl p-5">
       <div className="flex items-center justify-between gap-2">
         <CardTitle className="text-sm font-semibold">This week</CardTitle>
-        <span className="text-xs text-muted-foreground">Last 7 days</span>
+        <span className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span title="Average daily score this week">avg {avg}%</span>
+          <span aria-hidden="true">·</span>
+          <span>Last 7 days</span>
+        </span>
       </div>
       <div>
         <div
-          className="flex h-24 items-end gap-1.5 sm:gap-2"
+          className="relative flex h-24 items-end gap-1.5 sm:gap-2"
           role="img"
           aria-label="Daily scores for the last 7 days"
         >
+          {/* average marker line */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 border-t border-dashed border-primary/30"
+            style={{ bottom: `${Math.max(4, avg)}%` }}
+          />
           {week.map((d) => {
             const isToday = d.date === today;
             return (
               <div
                 key={d.date}
-                className="flex h-full flex-1 items-end"
+                className="group relative flex h-full flex-1 cursor-default items-end"
                 title={`${formatKeyLabel(d.date)} · score ${d.score}% · ${d.todosCompleted} tasks, ${d.habitsCompleted} habits, ${d.routineCompleted} routine`}
               >
                 <div
                   className={cn(
-                    "w-full rounded-md transition-all duration-500",
+                    "w-full rounded-md transition-all duration-500 group-hover:brightness-110",
                     isToday
-                      ? "bg-gradient-to-t from-primary to-emerald-400 shadow-sm"
+                      ? "bg-gradient-to-t from-primary to-emerald-400 shadow-sm shadow-primary/30"
                       : d.score > 0
                         ? "bg-primary/30 dark:bg-primary/35"
                         : "bg-muted"
                   )}
                   style={{ height: `${Math.max(4, d.score)}%` }}
                 />
+                {isToday && (
+                  <span
+                    className="pointer-events-none absolute left-1/2 -translate-x-1/2 rounded-full bg-primary px-1.5 py-px text-[9px] font-bold tabular-nums text-primary-foreground shadow-sm"
+                    style={{ bottom: `calc(${Math.max(4, d.score)}% + 6px)` }}
+                  >
+                    {d.score}
+                  </span>
+                )}
               </div>
             );
           })}

@@ -247,3 +247,60 @@ Work Log:
 
 Stage Summary:
 - App is fully functional and browser-verified end-to-end. Demo data intentionally present: 3 habits (2 done today), 2 active tasks + 1 completed, 1 learning goal (3/10), 3 notes, 2 diary entries. Remaining known-minor: none blocking. Next: Task 5 cron job + final handover.
+
+---
+Task ID: R2-2
+Agent: main (cron review round 2)
+Task: Round 2 foundation — FocusSession model, /api/focus + /api/insights endpoints, nav/types/api-client updates for Focus & Insights views
+
+Work Log:
+- QA health check: all 7 views + 0 page errors (stable from Round 1).
+- Added FocusSession Prisma model (id, taskId?, label?, minutes, startedAt, endedAt) + indexes; pushed schema, regenerated client.
+- types.ts: added FocusSession, FocusSessionInput, FocusStats, InsightsData, DayStat unchanged; ViewId now includes "focus" and "insights".
+- api.ts: added statsApi.insights() → GET /api/insights, focusApi.stats() → GET /api/focus, focusApi.log() → POST /api/focus.
+- nav-config.ts: NAV_ITEMS now 9 entries (added Focus=Timer icon after Dashboard, Insights=BarChart3 after Diary); MOBILE_MORE_NAV = [focus, insights, notes, diary, settings].
+- page.tsx: registered FocusView + InsightsView lazy dynamic imports + view switch cases.
+- Created src/app/api/focus/route.ts (GET FocusStats today/week/lastWeek minutes + session counts; POST logs a session — validates minutes 1..240, optional taskId must exist; startedAt/endedAt default to now−minutes/now).
+- Created src/app/api/insights/route.ts (GET InsightsData: 84-day heatmap with daily scores reusing stats formula, 30-day todosTrend, habitConsistency pct+streak, moodDistribution, focus minutes today/week/lastWeek/avgSession, totals incl. focusHours + bestHabitStreak).
+- CRITICAL INFRA FIX: Prisma client regeneration wasn't picked up by the running Turbopack dev server (stale compiled @prisma/client + globalThis singleton). Fixed db.ts to import from '.prisma/client' (statically analyzable CommonJS entry) with a versioned global cache key (prisma:v4). Also had to restart the dev server (Turbopack cache was corrupted after .next/dev removal) — restarted via double-fork pattern `(setsid bun run dev &)` which survives tool-session cleanup. All endpoints verified: focus GET/POST, insights (84 heatmap days, correct totals), stats, todos — all 200.
+- Stub views created: focus-view.tsx, insights-view.tsx (named exports FocusView / InsightsView).
+
+Stage Summary:
+- Foundation ready for view agents. Backend contract for Focus + Insights complete and curl-verified. Dev server healthy on port 3000 (restarted, detached). NOTE for all agents: if Prisma client seems stale after schema changes, bump PRISMA_CACHE_KEY in src/lib/db.ts.
+
+---
+Task ID: R2-3b
+Agent: frontend-developer
+Task: Frontend — Insights view (src/components/app/views/insights-view.tsx)
+
+Work Log:
+- Read worklog (incl. R2-2 /api/insights contract), types.ts, api.ts, dates.ts, shared components, dashboard-view (style reference), shadcn primitives; curl-verified /api/insights shapes (84 heatmap days oldest-first, 30-day trend oldest-first, totals 1/2/2/0.4) before coding. Replaced ONLY the insights-view.tsx stub (named export InsightsView, "use client", useQuery ["insights"] → statsApi.insights; skeleton loading; EmptyState retry on error).
+- Totals strip: 4 compact cards (grid-cols-2 sm:grid-cols-4) — Tasks completed (CheckCircle2/emerald), Diary entries (BookOpen/amber), Habit checks (Repeat/teal), Focus hours (Timer/violet); tinted icon tile + big tabular-nums number + small label.
+- Activity heatmap (star): GitHub-style grid, 12-13 week columns × 7 rows (Mon-Sun), first column padded with null cells via weekdayOfKey(heatmap[0].date)-1; exact tailwind levels 0→bg-muted, 1-24→emerald-500/25, 25-49→/45, 50-74→/70, 75+→emerald-500; today = ring-2 ring-primary ring-offset-1 ring-offset-card; month labels (Jun/Jul/Aug) above columns on month change; M/W/F row hints; per-cell native title tooltip "MMM d · score N · X tasks, Y habits, Z routine"; legend "Less ▢▢▢▢ More"; overflow-x-auto no-scrollbar w-max (fits 390px, no overflow); side/below chips: Longest streak (consecutive score>0), Active days N/84, Avg score; all-zero → hint "Start checking things off to fill your heatmap."
+- Tasks trend: pure inline SVG (no chart libs) — viewBox 0 0 100 40 + preserveAspectRatio="none" + vector-effect="non-scaling-stroke" (uniform 2px primary line, 1px faint gridlines), Catmull-Rom smoothed path clamped to plot band, linearGradient area (currentColor, 0.16→0.02); points at cell centers with 30 CSS-grid hover zones (title tooltips + group-hover guideline/dot — note Tailwind wraps hover variants in @media(hover:hover), false in headless test browser, works on real pointers); axis labels rendered as HTML (never distorted): y-gutter yMax/mid/0 (odd maxima bumped +1, mid hidden when yMax<2 → integer labels only) + 5 date labels (MMM d); chips Total / Best day / Average N.N/day (tabular-nums).
+- Habit consistency: rows with emoji in habitRingStyles ring, name, "🔥 N" streak when >1, right pct + h-1.5 ProgressBar colored via habitDotStyles; max-h-[26rem] divide-y overflow-y-auto (scrolls past ~8); EmptyState "No habits yet" + Create habits → setView("routine").
+- Mood card (only when moodDistribution.length>0): single rounded-full h-3 stacked bar, fixed great→rough segment order (emerald-500/teal-500/amber-500/orange-500/rose-500) proportional widths + title tooltips; legend rows (dot + emoji + label + count · pct) grid-cols-1 sm:grid-cols-2. Focus card: This week hero (formatMinutes) + delta chip (TrendingUp emerald / TrendingDown red, "+25m vs last week"; "Same as last week" at 0; hint "Use the Focus timer to track deep work." when weekMinutes===0) + Separator + Today / Avg session tiles. Footer note: "Insights update as you use Momentum — complete tasks, check habits, write your diary."
+- Polish: rounded-2xl p-4 sm:p-5 cards, tabular-nums everywhere, framer-motion FadeIn mount-only stagger (0.05s), aria labels on chart/heatmap regions, emerald positives, no indigo/blue.
+- Verified (agent-browser, isolated --session insights): totals 1/2/2/0.4 === API; heatmap 84 cells / 13 cols, month labels left-aligned to correct columns (labelX===colX), weekday labels pixel-aligned to rows (diffs all 0), today (Aug 27 Thu) at row 4 with ring + correct tooltip; trend 30 zones, y labels 1/0, x labels Jul 29–Aug 27; habit rows 3%/3%/0% (🔥 hidden at streak 1); mood teal 100%; focus 25m + "+25m vs last week"; mobile 390×844 no horizontal overflow, heatmap fits (217px), nav via More sheet works; dark mode OK; zero page errors. VLM review of light-desktop / dark-desktop / mobile screenshots: all PASS (after strengthening today ring + integer y-labels).
+- `bun run lint` → 0 errors; `bunx tsc --noEmit` → no errors in insights-view.tsx. dev.log clean. NOTE: default agent-browser session was being driven concurrently by the parallel focus agent — used a dedicated session; future agents should too when parallel agents are active.
+
+Stage Summary:
+- Insights view complete and browser-verified: totals strip, 12-week GitHub-style activity heatmap with today highlight + month labels, pure-SVG 30-day tasks trend with hover tooltips, habit consistency bars, mood distribution stacked bar, focus stats with week-over-week delta, footer note. No changes to page.tsx, api.ts, types.ts, shared components or other views. Remaining stub for other agents: focus-view (R2-3a, in progress by parallel agent).
+
+---
+Task ID: R2-3a / R2-4 / R2-5 (combined)
+Agent: main (cron review round 2)
+Task: Focus Timer view completion + styling polish pass + final QA + demo history seeding
+
+Work Log:
+- Focus view (R2-3a): the subagent wrote the full 1173-line focus-view.tsx but died on an infrastructure error before browser QA. I completed its verification: timer start/pause/reset verified (02:00 → 01:57 after 3s, pause→Resume), mode switching (Focus 25/Short 5/Long 15 with color-coded rings), task picker chips, stats strip (today/week minutes with vs-last-week delta), session dots, localStorage persistence ("momentum-focus"), Web Audio chime. Fixed its mobile mode-tab truncation → full labels ("Focus / Short break / Long break") with whitespace-nowrap — VLM-verified to fit at 390px. 0 page errors.
+- Insights view (R2-3b): built by subagent — totals strip, 84-day GitHub-style heatmap (alignment PROGRAMMATICALLY verified: M/W/F label centers 313/345/377 exactly match row centers), pure-SVG 30-day trend chart, habit consistency bars, mood stacked bar, focus stats. 0 errors.
+- Styling polish (R2-4, mandatory): dashboard greeting now emerald→teal gradient text; score chip shadow; week chart gained dashed average marker line + avg% header + today score badge above today's bar + bar hover brightness; stat cards got distinct emerald/teal/orange icon tints + colored progress bars + hover lift (-translate-y + shadow-md); sidebar "Stay consistent" card got soft radial gradient blob. VLM before/after comparison: "Excellent Polish, No Regressions".
+- Demo history seeded (16 days): habit logs ~70% consistency, 8 completed todos spread across past 2 weeks, 3 diary entries with moods/energy, 5 focus sessions (25-50min). Makes Insights/heatmap/trends demonstrable. Current: focus week 125min vs last week 70min.
+- Cleaned subagent test data (Skip-path test todo, test focus sessions).
+- Final QA (R2-5): all 9 views swept (Dashboard, Focus, Tasks, Routine, Goals, Notes, Diary, Insights, Settings) — 0 page errors each; lint 0 errors; tsc clean; dev.log clean; mobile 390px + desktop 1280px verified; dark mode verified.
+
+Stage Summary:
+- Round 2 COMPLETE. App now has 9 views: added Focus (Pomodoro timer with task linking, session logging, sounds, persistence) and Insights (heatmap, trends, consistency, mood, focus analytics). Backend: /api/focus + /api/insights + FocusSession model.
+- INFRA NOTE for future rounds: (1) after `prisma generate`, bump PRISMA_CACHE_KEY in src/lib/db.ts if models seem missing; (2) dev server was restarted this round and runs detached via `(setsid bun run dev &)` — if port 3000 is dead, restart with that exact pattern from /home/z/my-project (plain nohup gets reaped between tool sessions); (3) .next/dev cache deletion requires a server restart — avoid deleting it.
+- Unresolved/next-round candidates: recurring tasks (repeat daily/weekly); subtasks/checklists inside tasks; keyboard shortcuts (Cmd+K quick-add); PWA manifest for install-to-homescreen; weekly review summary email-style export.

@@ -4,10 +4,14 @@
 import type {
   AppSettings,
   DashboardStats,
+  FocusSession,
+  FocusSessionInput,
+  FocusStats,
   Goal,
   GoalInput,
   Habit,
   HabitInput,
+  InsightsData,
   JournalEntry,
   JournalEntryInput,
   Note,
@@ -145,6 +149,13 @@ export const goalsApi = {
 // ── Stats / Dashboard ────────────────────────────────────────
 export const statsApi = {
   dashboard: () => get<DashboardStats>("/api/stats"),
+  insights: () => get<InsightsData>("/api/insights"),
+};
+
+// ── Focus sessions (Pomodoro) ────────────────────────────────
+export const focusApi = {
+  stats: () => get<FocusStats>("/api/focus"),
+  log: (input: FocusSessionInput) => post<FocusSession>("/api/focus", input),
 };
 
 // ── Settings ─────────────────────────────────────────────────
