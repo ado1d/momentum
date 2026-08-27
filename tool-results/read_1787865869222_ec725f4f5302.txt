@@ -1,0 +1,908 @@
+     1→"use client";
+     2→
+     3→import * as React from "react";
+     4→import { useQuery } from "@tanstack/react-query";
+     5→import { motion } from "framer-motion";
+     6→import { format, isValid } from "date-fns";
+     7→import {
+     8→  Activity,
+     9→  BookOpen,
+    10→  CalendarCheck,
+    11→  CheckCircle2,
+    12→  ChevronRight,
+    13→  CloudOff,
+    14→  Flame,
+    15→  Gauge,
+    16→  Repeat,
+    17→  Sparkles,
+    18→  Timer,
+    19→  TrendingDown,
+    20→  TrendingUp,
+    21→  Zap,
+    22→} from "lucide-react";
+    23→import { statsApi } from "@/lib/api";
+    24→import { keyToDate, todayKey, weekdayOfKey } from "@/lib/dates";
+    25→import { useUiStore } from "@/lib/store";
+    26→import { MOODS, type DayStat, type InsightsData, type Mood } from "@/lib/types";
+    27→import { Card, CardTitle } from "@/components/ui/card";
+    28→import { Separator } from "@/components/ui/separator";
+    29→import { Skeleton } from "@/components/ui/skeleton";
+    30→import { EmptyState } from "@/components/app/shared/empty-state";
+    31→import { habitDotStyles, habitRingStyles } from "@/components/app/shared/badges";
+    32→import { ProgressBar } from "@/components/app/shared/progress";
+    33→import { ViewHeader } from "@/components/app/shared/view-header";
+    34→import { ReviewDialog } from "@/components/app/review-dialog";
+    35→import { cn } from "@/lib/utils";
+    36→
+    37→type TrendPoint = { date: string; count: number };
+    38→type HabitStat = InsightsData["habitConsistency"][number];
+    39→
+    40→// ── Helpers ──────────────────────────────────────────────────
+    41→
+    42→/** "Aug 27" style short label for a YYYY-MM-DD key. */
+    43→function shortDate(key: string): string {
+    44→  const d = keyToDate(key);
+    45→  return isValid(d) ? format(d, "MMM d") : key;
+    46→}
+    47→
+    48→/** 65 → "1h 5m", 45 → "45m", 120 → "2h" */
+    49→function formatMinutes(total: number): string {
+    50→  if (total <= 0) return "0m";
+    51→  const h = Math.floor(total / 60);
+    52→  const m = total % 60;
+    53→  if (h === 0) return `${m}m`;
+    54→  if (m === 0) return `${h}h`;
+    55→  return `${h}h ${m}m`;
+    56→}
+    57→
+    58→function formatCompact(n: number): string {
+    59→  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+    60→}
+    61→
+    62→/** GitHub-style heat levels for a 0..100 day score. */
+    63→function heatLevelClass(score: number): string {
+    64→  if (score <= 0) return "bg-muted";
+    65→  if (score < 25) return "bg-emerald-500/25";
+    66→  if (score < 50) return "bg-emerald-500/45";
+    67→  if (score < 75) return "bg-emerald-500/70";
+    68→  return "bg-emerald-500";
+    69→}
+    70→
+    71→const moodBarStyles: Record<Mood, string> = {
+    72→  great: "bg-emerald-500",
+    73→  good: "bg-teal-500",
+    74→  okay: "bg-amber-500",
+    75→  low: "bg-orange-500",
+    76→  rough: "bg-rose-500",
+    77→};
+    78→
+    79→const WEEKDAY_LABELS = ["M", "", "W", "", "F", "", ""];
+    80→
+    81→/** Catmull-Rom → cubic bezier smoothing, clamped to the 0..40 plot band. */
+    82→function smoothPath(pts: { x: number; y: number }[]): string {
+    83→  if (pts.length === 0) return "";
+    84→  if (pts.length === 1) return `M ${pts[0].x.toFixed(2)} ${pts[0].y.toFixed(2)}`;
+    85→  const clamp = (v: number) => Math.min(40, Math.max(0, v));
+    86→  let d = `M ${pts[0].x.toFixed(2)} ${pts[0].y.toFixed(2)}`;
+    87→  for (let i = 0; i < pts.length - 1; i += 1) {
+    88→    const p0 = pts[i - 1] ?? pts[i];
+    89→    const p1 = pts[i];
+    90→    const p2 = pts[i + 1];
+    91→    const p3 = pts[i + 2] ?? p2;
+    92→    const c1x = p1.x + (p2.x - p0.x) / 6;
+    93→    const c1y = clamp(p1.y + (p2.y - p0.y) / 6);
+    94→    const c2x = p2.x - (p3.x - p1.x) / 6;
+    95→    const c2y = clamp(p2.y - (p3.y - p1.y) / 6);
+    96→    d += ` C ${c1x.toFixed(2)} ${c1y.toFixed(2)}, ${c2x.toFixed(2)} ${c2y.toFixed(2)}, ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
+    97→  }
+    98→  return d;
+    99→}
+   100→
+   101→// ── Small building blocks ────────────────────────────────────
+   102→
+   103→/** Light mount-only fade/slide so cards stagger in (matches dashboard). */
+   104→function FadeIn({
+   105→  delay = 0,
+   106→  className,
+   107→  children,
+   108→}: {
+   109→  delay?: number;
+   110→  className?: string;
+   111→  children: React.ReactNode;
+   112→}) {
+   113→  return (
+   114→    <motion.div
+   115→      initial={{ opacity: 0, y: 10 }}
+   116→      animate={{ opacity: 1, y: 0 }}
+   117→      transition={{ duration: 0.3, delay, ease: "easeOut" }}
+   118→      className={className}
+   119→    >
+   120→      {children}
+   121→    </motion.div>
+   122→  );
+   123→}
+   124→
+   125→function StatChip({
+   126→  icon: Icon,
+   127→  iconClassName,
+   128→  label,
+   129→  value,
+   130→}: {
+   131→  icon: React.ComponentType<{ className?: string }>;
+   132→  iconClassName?: string;
+   133→  label: string;
+   134→  value: string;
+   135→}) {
+   136→  return (
+   137→    <span className="inline-flex items-center gap-1.5 rounded-full border bg-muted/40 px-2.5 py-1 text-xs text-muted-foreground">
+   138→      <Icon className={cn("size-3.5 shrink-0", iconClassName)} aria-hidden="true" />
+   139→      {label}
+   140→      <span className="font-semibold text-foreground tabular-nums">{value}</span>
+   141→    </span>
+   142→  );
+   143→}
+   144→
+   145→function CardHead({
+   146→  title,
+   147→  subtitle,
+   148→  action,
+   149→}: {
+   150→  title: string;
+   151→  subtitle?: string;
+   152→  action?: React.ReactNode;
+   153→}) {
+   154→  return (
+   155→    <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+   156→      <div className="min-w-0">
+   157→        <CardTitle className="text-base font-semibold leading-tight">{title}</CardTitle>
+   158→        {subtitle && <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p>}
+   159→      </div>
+   160→      {action}
+   161→    </div>
+   162→  );
+   163→}
+   164→
+   165→// ── Skeleton / error ─────────────────────────────────────────
+   166→
+   167→function InsightsSkeleton() {
+   168→  return (
+   169→    <div className="space-y-4" aria-busy="true" aria-label="Loading insights">
+   170→      <div className="space-y-2">
+   171→        <Skeleton className="h-7 w-36" />
+   172→        <Skeleton className="h-4 w-64" />
+   173→      </div>
+   174→      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+   175→        {Array.from({ length: 4 }).map((_, i) => (
+   176→          <Skeleton key={i} className="h-[78px] rounded-2xl" />
+   177→        ))}
+   178→      </div>
+   179→      <Skeleton className="h-64 rounded-2xl" />
+   180→      <Skeleton className="h-72 rounded-2xl" />
+   181→      <Skeleton className="h-64 rounded-2xl" />
+   182→    </div>
+   183→  );
+   184→}
+   185→
+   186→function InsightsError({ onRetry }: { onRetry: () => void }) {
+   187→  return (
+   188→    <EmptyState
+   189→      icon={CloudOff}
+   190→      title="Couldn't load your insights"
+   191→      description="Something went wrong while crunching your numbers. Check your connection and try again."
+   192→      actionLabel="Try again"
+   193→      onAction={onRetry}
+   194→      className="mt-8"
+   195→    />
+   196→  );
+   197→}
+   198→
+   199→// ── Totals strip ─────────────────────────────────────────────
+   200→
+   201→function TotalsStrip({ totals }: { totals: InsightsData["totals"] }) {
+   202→  const items = [
+   203→    {
+   204→      icon: CheckCircle2,
+   205→      label: "Tasks completed",
+   206→      value: totals.todosCompleted.toLocaleString(),
+   207→      tile: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+   208→    },
+   209→    {
+   210→      icon: BookOpen,
+   211→      label: "Diary entries",
+   212→      value: totals.journalEntries.toLocaleString(),
+   213→      tile: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+   214→    },
+   215→    {
+   216→      icon: Repeat,
+   217→      label: "Habit checks",
+   218→      value: totals.habitChecks.toLocaleString(),
+   219→      tile: "bg-teal-500/15 text-teal-600 dark:text-teal-400",
+   220→    },
+   221→    {
+   222→      icon: Timer,
+   223→      label: "Focus hours",
+   224→      value: formatCompact(totals.focusHours),
+   225→      tile: "bg-violet-500/15 text-violet-600 dark:text-violet-400",
+   226→    },
+   227→  ];
+   228→
+   229→  return (
+   230→    <section
+   231→      aria-label="All-time totals"
+   232→      className="grid grid-cols-2 gap-3 sm:grid-cols-4"
+   233→    >
+   234→      {items.map(({ icon: Icon, label, value, tile }) => (
+   235→        <Card key={label} className="gap-0 rounded-2xl p-4 sm:p-5">
+   236→          <div className="flex items-center gap-3">
+   237→            <span
+   238→              className={cn(
+   239→                "flex size-10 shrink-0 items-center justify-center rounded-xl",
+   240→                tile
+   241→              )}
+   242→            >
+   243→              <Icon className="size-5" aria-hidden="true" />
+   244→            </span>
+   245→            <div className="min-w-0">
+   246→              <p className="text-2xl font-bold leading-none tabular-nums">{value}</p>
+   247→              <p className="mt-1 text-xs font-medium leading-snug text-muted-foreground">
+   248→                {label}
+   249→              </p>
+   250→            </div>
+   251→          </div>
+   252→        </Card>
+   253→      ))}
+   254→    </section>
+   255→  );
+   256→}
+   257→
+   258→// ── Activity heatmap ─────────────────────────────────────────
+   259→
+   260→function HeatmapCard({ heatmap }: { heatmap: DayStat[] }) {
+   261→  const today = todayKey();
+   262→
+   263→  // Pad the first column so day 1 of the data lands on its Monday-based row.
+   264→  const weeks = React.useMemo(() => {
+   265→    if (heatmap.length === 0) return [] as (DayStat | null)[][];
+   266→    const pad = weekdayOfKey(heatmap[0].date) - 1; // Mon=1 → 0 padding
+   267→    const cells: (DayStat | null)[] = [
+   268→      ...Array.from({ length: pad }, () => null),
+   269→      ...heatmap,
+   270→    ];
+   271→    const out: (DayStat | null)[][] = [];
+   272→    for (let i = 0; i < cells.length; i += 7) out.push(cells.slice(i, i + 7));
+   273→    return out;
+   274→  }, [heatmap]);
+   275→
+   276→  // Tiny month label above a column whenever the month changes.
+   277→  const monthLabels = React.useMemo(() => {
+   278→    let last = -1;
+   279→    return weeks.map((week) => {
+   280→      const first = week.find((c): c is DayStat => c !== null);
+   281→      if (!first) return "";
+   282→      const d = keyToDate(first.date);
+   283→      if (!isValid(d)) return "";
+   284→      const m = d.getFullYear() * 12 + d.getMonth();
+   285→      if (m !== last) {
+   286→        last = m;
+   287→        return format(d, "MMM");
+   288→      }
+   289→      return "";
+   290→    });
+   291→  }, [weeks]);
+   292→
+   293→  const { longestStreak, activeDays, avgScore } = React.useMemo(() => {
+   294→    let streak = 0;
+   295→    let best = 0;
+   296→    let active = 0;
+   297→    let sum = 0;
+   298→    for (const d of heatmap) {
+   299→      if (d.score > 0) {
+   300→        streak += 1;
+   301→        active += 1;
+   302→        if (streak > best) best = streak;
+   303→      } else {
+   304→        streak = 0;
+   305→      }
+   306→      sum += d.score;
+   307→    }
+   308→    return {
+   309→      longestStreak: best,
+   310→      activeDays: active,
+   311→      avgScore: heatmap.length ? Math.round(sum / heatmap.length) : 0,
+   312→    };
+   313→  }, [heatmap]);
+   314→
+   315→  const allEmpty = heatmap.length > 0 && heatmap.every((d) => d.score <= 0);
+   316→  const totalDays = heatmap.length;
+   317→
+   318→  return (
+   319→    <Card className="gap-4 rounded-2xl p-4 sm:p-5">
+   320→      <CardHead
+   321→        title="Activity"
+   322→        subtitle="Last 12 weeks"
+   323→        action={
+   324→          <div
+   325→            className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground"
+   326→            aria-hidden="true"
+   327→          >
+   328→            Less
+   329→            {[
+   330→              "bg-muted",
+   331→              "bg-emerald-500/25",
+   332→              "bg-emerald-500/45",
+   333→              "bg-emerald-500/70",
+   334→              "bg-emerald-500",
+   335→            ].map((c) => (
+   336→              <span key={c} className={cn("size-2.5 rounded-[3px]", c)} />
+   337→            ))}
+   338→            More
+   339→          </div>
+   340→        }
+   341→      />
+   342→
+   343→      <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+   344→        <div
+   345→          className="no-scrollbar overflow-x-auto"
+   346→          role="img"
+   347→          aria-label={`Activity heatmap for the last 12 weeks — ${activeDays} of ${totalDays} days active, average score ${avgScore}.`}
+   348→        >
+   349→          <div className="flex w-max gap-1">
+   350→            {/* Weekday hints (M / W / F) */}
+   351→            <div
+   352→              className="mr-1 flex flex-col gap-1 pt-4 text-[9px] font-medium leading-none text-muted-foreground/60"
+   353→              aria-hidden="true"
+   354→            >
+   355→              {WEEKDAY_LABELS.map((label, i) => (
+   356→                <span key={i} className="flex h-[11px] items-center sm:h-3">
+   357→                  {label}
+   358→                </span>
+   359→              ))}
+   360→            </div>
+   361→
+   362→            {weeks.map((week, wi) => (
+   363→              <div key={wi} className="flex flex-col gap-1">
+   364→                <span className="flex h-3 items-center text-[9px] font-medium leading-none text-muted-foreground/70">
+   365→                  {monthLabels[wi]}
+   366→                </span>
+   367→                {week.map((cell, ci) =>
+   368→                  cell ? (
+   369→                    <span
+   370→                      key={cell.date}
+   371→                      title={`${shortDate(cell.date)} · score ${cell.score} · ${cell.todosCompleted} ${cell.todosCompleted === 1 ? "task" : "tasks"}, ${cell.habitsCompleted} ${cell.habitsCompleted === 1 ? "habit" : "habits"}, ${cell.routineCompleted} routine`}
+   372→                      className={cn(
+   373→                        "size-[11px] rounded-[3px] sm:size-3",
+   374→                        heatLevelClass(cell.score),
+   375→                        cell.date === today &&
+   376→                          "ring-2 ring-primary ring-offset-1 ring-offset-card"
+   377→                      )}
+   378→                    />
+   379→                  ) : (
+   380→                    <span
+   381→                      key={`pad-${wi}-${ci}`}
+   382→                      className="size-[11px] sm:size-3"
+   383→                      aria-hidden="true"
+   384→                    />
+   385→                  )
+   386→                )}
+   387→              </div>
+   388→            ))}
+   389→          </div>
+   390→        </div>
+   391→
+   392→        <div className="flex flex-wrap items-center gap-2 sm:max-w-[13rem] sm:flex-col sm:items-stretch sm:gap-2.5">
+   393→          <StatChip
+   394→            icon={Flame}
+   395→            iconClassName="text-orange-500"
+   396→            label="Longest streak"
+   397→            value={`${longestStreak} ${longestStreak === 1 ? "day" : "days"}`}
+   398→          />
+   399→          <StatChip
+   400→            icon={CalendarCheck}
+   401→            iconClassName="text-teal-600 dark:text-teal-400"
+   402→            label="Active days"
+   403→            value={`${activeDays} / ${totalDays}`}
+   404→          />
+   405→          <StatChip
+   406→            icon={Activity}
+   407→            iconClassName="text-emerald-600 dark:text-emerald-400"
+   408→            label="Avg score"
+   409→            value={String(avgScore)}
+   410→          />
+   411→        </div>
+   412→      </div>
+   413→
+   414→      {allEmpty && (
+   415→        <p className="text-xs text-muted-foreground">
+   416→          Start checking things off to fill your heatmap.
+   417→        </p>
+   418→      )}
+   419→    </Card>
+   420→  );
+   421→}
+   422→
+   423→// ── Tasks trend (pure inline SVG line/area chart) ────────────
+   424→
+   425→function TasksTrendCard({ trend }: { trend: TrendPoint[] }) {
+   426→  const n = trend.length;
+   427→
+   428→  const { max, total, best, avg } = React.useMemo(() => {
+   429→    const counts = trend.map((p) => p.count);
+   430→    const t = counts.reduce((a, b) => a + b, 0);
+   431→    // Round odd maxima up so the mid gridline/label stays an integer.
+   432→    const m = Math.max(1, ...counts);
+   433→    return {
+   434→      max: m >= 3 && m % 2 === 1 ? m + 1 : m,
+   435→      total: t,
+   436→      best: counts.length ? Math.max(...counts) : 0,
+   437→      avg: counts.length ? t / counts.length : 0,
+   438→    };
+   439→  }, [trend]);
+   440→
+   441→  // Points live in a 100×40 viewBox; the SVG stretches with
+   442→  // preserveAspectRatio="none" and strokes use vector-effect so they
+   443→  // stay crisp. Text (axis labels) is rendered as HTML so it never distorts.
+   444→  const points = React.useMemo(
+   445→    () =>
+   446→      trend.map((p, i) => ({
+   447→        ...p,
+   448→        x: ((i + 0.5) * 100) / n,
+   449→        y: 40 - (p.count / max) * 40,
+   450→        yPct: (1 - p.count / max) * 100,
+   451→      })),
+   452→    [trend, n, max]
+   453→  );
+   454→
+   455→  const linePath = React.useMemo(() => smoothPath(points), [points]);
+   456→  const areaPath = React.useMemo(() => {
+   457→    if (points.length < 2) return "";
+   458→    const last = points[points.length - 1];
+   459→    const first = points[0];
+   460→    return `${linePath} L ${last.x.toFixed(2)} 40 L ${first.x.toFixed(2)} 40 Z`;
+   461→  }, [linePath, points]);
+   462→
+   463→  const xLabelIdx = React.useMemo(() => {
+   464→    if (n === 0) return [] as number[];
+   465→    const raw = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round((n - 1) * f));
+   466→    return [...new Set(raw)];
+   467→  }, [n]);
+   468→
+   469→  const mid = max / 2;
+   470→  const showMid = max >= 2; // max=1 has no integer midpoint
+   471→
+   472→  return (
+   473→    <Card className="gap-4 rounded-2xl p-4 sm:p-5">
+   474→      <CardHead title="Tasks completed" subtitle="Last 30 days" />
+   475→
+   476→      <div
+   477→        className="flex gap-2"
+   478→        role="img"
+   479→        aria-label={`Tasks completed per day over the last ${n} days — total ${total}, best day ${best}, average ${avg.toFixed(1)} per day.`}
+   480→      >
+   481→        {/* Y-axis labels (HTML so they stay crisp) */}
+   482→        <div className="relative w-7 shrink-0 text-right text-[9px] font-medium leading-none tabular-nums text-muted-foreground">
+   483→          <span className="absolute inset-x-0 top-0 -translate-y-1/2">
+   484→            {formatCompact(max)}
+   485→          </span>
+   486→          {showMid && (
+   487→            <span className="absolute inset-x-0 top-1/2 -translate-y-1/2">
+   488→              {formatCompact(mid)}
+   489→            </span>
+   490→          )}
+   491→          <span className="absolute inset-x-0 top-full -translate-y-1/2">0</span>
+   492→        </div>
+   493→
+   494→        {/* Plot area */}
+   495→        <div className="relative h-36 min-w-0 flex-1">
+   496→          <svg
+   497→            className="absolute inset-0 h-full w-full text-primary"
+   498→            viewBox="0 0 100 40"
+   499→            preserveAspectRatio="none"
+   500→            aria-hidden="true"
+   501→          >
+   502→            <defs>
+   503→              <linearGradient id="insights-trend-fill" x1="0" y1="0" x2="0" y2="1">
+   504→                <stop offset="0%" stopColor="currentColor" stopOpacity="0.16" />
+   505→                <stop offset="100%" stopColor="currentColor" stopOpacity="0.02" />
+   506→              </linearGradient>
+   507→            </defs>
+   508→            {/* Gridlines */}
+   509→            <line
+   510→              x1="0"
+   511→              y1="0"
+   512→              x2="100"
+   513→              y2="0"
+   514→              strokeWidth="1"
+   515→              vectorEffect="non-scaling-stroke"
+   516→              className="stroke-muted-foreground/15"
+   517→            />
+   518→            {showMid && (
+   519→              <line
+   520→                x1="0"
+   521→                y1="20"
+   522→                x2="100"
+   523→                y2="20"
+   524→                strokeWidth="1"
+   525→                vectorEffect="non-scaling-stroke"
+   526→                className="stroke-muted-foreground/10"
+   527→              />
+   528→            )}
+   529→            <line
+   530→              x1="0"
+   531→              y1="40"
+   532→              x2="100"
+   533→              y2="40"
+   534→              strokeWidth="1"
+   535→              vectorEffect="non-scaling-stroke"
+   536→              className="stroke-muted-foreground/15"
+   537→            />
+   538→            {/* Area + line */}
+   539→            {areaPath && <path d={areaPath} fill="url(#insights-trend-fill)" />}
+   540→            {linePath && (
+   541→              <path
+   542→                d={linePath}
+   543→                fill="none"
+   544→                strokeWidth="2"
+   545→                strokeLinecap="round"
+   546→                strokeLinejoin="round"
+   547→                vectorEffect="non-scaling-stroke"
+   548→                className="stroke-primary"
+   549→              />
+   550→            )}
+   551→          </svg>
+   552→
+   553→          {/* Hover zones: one per day — tooltip + guideline + dot */}
+   554→          <div
+   555→            className="absolute inset-0 grid"
+   556→            style={{ gridTemplateColumns: `repeat(${n}, 1fr)` }}
+   557→            aria-hidden="true"
+   558→          >
+   559→            {points.map((p) => (
+   560→              <div
+   561→                key={p.date}
+   562→                className="group relative"
+   563→                title={`${shortDate(p.date)} · ${p.count} ${p.count === 1 ? "task" : "tasks"} completed`}
+   564→              >
+   565→                <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-foreground/15 opacity-0 transition-opacity duration-150 group-hover:opacity-100" />
+   566→                <span
+   567→                  className="absolute left-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary ring-2 ring-background opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+   568→                  style={{ top: `${p.yPct}%` }}
+   569→                />
+   570→              </div>
+   571→            ))}
+   572→          </div>
+   573→        </div>
+   574→      </div>
+   575→
+   576→      {/* X-axis labels */}
+   577→      <div className="-mt-2 flex justify-between pl-9 text-[9px] font-medium leading-none tabular-nums text-muted-foreground">
+   578→        {xLabelIdx.map((i) => (
+   579→          <span key={i}>{shortDate(trend[i].date)}</span>
+   580→        ))}
+   581→      </div>
+   582→
+   583→      <div className="flex flex-wrap items-center gap-2">
+   584→        <StatChip
+   585→          icon={CheckCircle2}
+   586→          iconClassName="text-emerald-600 dark:text-emerald-400"
+   587→          label="Total"
+   588→          value={total.toLocaleString()}
+   589→        />
+   590→        <StatChip
+   591→          icon={Zap}
+   592→          iconClassName="text-amber-500"
+   593→          label="Best day"
+   594→          value={String(best)}
+   595→        />
+   596→        <StatChip
+   597→          icon={Gauge}
+   598→          iconClassName="text-teal-600 dark:text-teal-400"
+   599→          label="Average"
+   600→          value={`${avg.toFixed(1)}/day`}
+   601→        />
+   602→      </div>
+   603→    </Card>
+   604→  );
+   605→}
+   606→
+   607→// ── Habit consistency ────────────────────────────────────────
+   608→
+   609→function HabitRow({ habit }: { habit: HabitStat }) {
+   610→  const ring = habitRingStyles[habit.color] ?? habitRingStyles.teal;
+   611→  const bar = habitDotStyles[habit.color] ?? habitDotStyles.teal;
+   612→  return (
+   613→    <div className="flex items-center gap-3 py-3 first:pt-1 last:pb-1">
+   614→      <span
+   615→        className={cn(
+   616→          "flex size-10 shrink-0 items-center justify-center rounded-full border text-lg leading-none",
+   617→          ring
+   618→        )}
+   619→        aria-hidden="true"
+   620→      >
+   621→        {habit.emoji}
+   622→      </span>
+   623→      <div className="min-w-0 flex-1">
+   624→        <div className="flex items-baseline justify-between gap-2">
+   625→          <p className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
+   626→            <span className="truncate">{habit.name}</span>
+   627→            {habit.streak > 1 && (
+   628→              <span
+   629→                className="shrink-0 text-xs font-semibold tabular-nums text-orange-500"
+   630→                title={`${habit.streak} day streak`}
+   631→              >
+   632→                🔥 {habit.streak}
+   633→              </span>
+   634→            )}
+   635→          </p>
+   636→          <span className="shrink-0 text-sm font-semibold tabular-nums">
+   637→            {habit.pct}%
+   638→          </span>
+   639→        </div>
+   640→        <ProgressBar
+   641→          value={habit.pct}
+   642→          className="mt-2 h-1.5"
+   643→          barClassName={bar}
+   644→        />
+   645→      </div>
+   646→    </div>
+   647→  );
+   648→}
+   649→
+   650→function HabitConsistencyCard({
+   651→  habits,
+   652→  onGoRoutine,
+   653→}: {
+   654→  habits: HabitStat[];
+   655→  onGoRoutine: () => void;
+   656→}) {
+   657→  const header = (
+   658→    <CardHead title="Habit consistency" subtitle="Last 30 days" />
+   659→  );
+   660→
+   661→  if (habits.length === 0) {
+   662→    return (
+   663→      <Card className="gap-3 rounded-2xl p-4 sm:p-5">
+   664→        {header}
+   665→        <EmptyState
+   666→          icon={Repeat}
+   667→          title="No habits yet"
+   668→          description="Create habits in your routine and their 30-day consistency will show up here."
+   669→          actionLabel="Create habits"
+   670→          onAction={onGoRoutine}
+   671→          className="border-0 bg-transparent py-8"
+   672→        />
+   673→      </Card>
+   674→    );
+   675→  }
+   676→
+   677→  return (
+   678→    <Card className="gap-3 rounded-2xl p-4 sm:p-5">
+   679→      {header}
+   680→      <div className="max-h-[26rem] divide-y overflow-y-auto pr-1">
+   681→        {habits.map((habit) => (
+   682→          <HabitRow key={habit.id} habit={habit} />
+   683→        ))}
+   684→      </div>
+   685→    </Card>
+   686→  );
+   687→}
+   688→
+   689→// ── Mood distribution ────────────────────────────────────────
+   690→
+   691→function MoodCard({ distribution }: { distribution: InsightsData["moodDistribution"] }) {
+   692→  const total = distribution.reduce((a, d) => a + d.count, 0);
+   693→
+   694→  // Render in a fixed best→rough order, only moods that were recorded.
+   695→  const rows = MOODS.map((m) => {
+   696→    const entry = distribution.find((d) => d.mood === m.value);
+   697→    return entry ? { ...m, count: entry.count } : null;
+   698→  }).filter((r): r is { value: Mood; label: string; emoji: string; count: number } => r !== null);
+   699→
+   700→  const pctOf = (count: number) => (total > 0 ? Math.round((count / total) * 100) : 0);
+   701→
+   702→  return (
+   703→    <Card className="gap-4 rounded-2xl p-4 sm:p-5">
+   704→      <CardHead title="Mood over time" subtitle="From your diary entries" />
+   705→
+   706→      <div
+   707→        className="flex h-3 w-full overflow-hidden rounded-full bg-muted"
+   708→        role="img"
+   709→        aria-label={`Mood distribution across ${total} diary ${total === 1 ? "entry" : "entries"}: ${rows
+   710→          .map((r) => `${r.label} ${pctOf(r.count)}%`)
+   711→          .join(", ")}.`}
+   712→      >
+   713→        {rows.map((r) => (
+   714→          <div
+   715→            key={r.value}
+   716→            className={moodBarStyles[r.value]}
+   717→            style={{ width: `${pctOf(r.count)}%` }}
+   718→            title={`${r.label} · ${r.count} ${r.count === 1 ? "entry" : "entries"} · ${pctOf(r.count)}%`}
+   719→          />
+   720→        ))}
+   721→      </div>
+   722→
+   723→      <div className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+   724→        {rows.map((r) => (
+   725→          <div key={r.value} className="flex items-center gap-2 text-sm">
+   726→            <span
+   727→              className={cn("size-2.5 shrink-0 rounded-full", moodBarStyles[r.value])}
+   728→              aria-hidden="true"
+   729→            />
+   730→            <span className="text-base leading-none" aria-hidden="true">
+   731→              {r.emoji}
+   732→            </span>
+   733→            <span className="font-medium">{r.label}</span>
+   734→            <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+   735→              {r.count} · {pctOf(r.count)}%
+   736→            </span>
+   737→          </div>
+   738→        ))}
+   739→      </div>
+   740→    </Card>
+   741→  );
+   742→}
+   743→
+   744→// ── Focus time ───────────────────────────────────────────────
+   745→
+   746→function FocusCard({ focus }: { focus: InsightsData["focus"] }) {
+   747→  const delta = focus.weekMinutes - focus.lastWeekMinutes;
+   748→  const noFocus = focus.weekMinutes === 0;
+   749→
+   750→  return (
+   751→    <Card className="gap-4 rounded-2xl p-4 sm:p-5">
+   752→      <CardHead title="Focus time" subtitle="Your recent deep-work sessions" />
+   753→
+   754→      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+   755→        <div>
+   756→          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+   757→            This week
+   758→          </p>
+   759→          <p className="mt-1 text-3xl font-bold leading-none tabular-nums">
+   760→            {formatMinutes(focus.weekMinutes)}
+   761→          </p>
+   762→        </div>
+   763→        {noFocus ? (
+   764→          <p className="max-w-[16rem] text-xs text-muted-foreground">
+   765→            Use the Focus timer to track deep work.
+   766→          </p>
+   767→        ) : delta === 0 ? (
+   768→          <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+   769→            Same as last week
+   770→          </span>
+   771→        ) : (
+   772→          <span
+   773→            className={cn(
+   774→              "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums",
+   775→              delta > 0
+   776→                ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+   777→                : "bg-red-500/15 text-red-700 dark:text-red-300"
+   778→            )}
+   779→          >
+   780→            {delta > 0 ? (
+   781→              <TrendingUp className="size-3.5" aria-hidden="true" />
+   782→            ) : (
+   783→              <TrendingDown className="size-3.5" aria-hidden="true" />
+   784→            )}
+   785→            {delta > 0 ? "+" : "-"}
+   786→            {formatMinutes(Math.abs(delta))} vs last week
+   787→          </span>
+   788→        )}
+   789→      </div>
+   790→
+   791→      <Separator />
+   792→
+   793→      <div className="grid grid-cols-2 gap-3">
+   794→        <div className="rounded-xl bg-muted/40 px-3.5 py-3">
+   795→          <p className="text-xs font-medium text-muted-foreground">Today</p>
+   796→          <p className="mt-1 text-xl font-bold leading-none tabular-nums">
+   797→            {formatMinutes(focus.todayMinutes)}
+   798→          </p>
+   799→        </div>
+   800→        <div className="rounded-xl bg-muted/40 px-3.5 py-3">
+   801→          <p className="text-xs font-medium text-muted-foreground">Avg session</p>
+   802→          <p className="mt-1 text-xl font-bold leading-none tabular-nums">
+   803→            {formatMinutes(focus.avgSessionMinutes)}
+   804→          </p>
+   805→        </div>
+   806→      </div>
+   807→    </Card>
+   808→  );
+   809→}
+   810→
+   811→// ── Weekly review CTA ────────────────────────────────────────
+   812→
+   813→/** Emerald-gradient-bordered call-to-action that opens the weekly review dialog. */
+   814→function WeeklyReviewCta({ onOpen }: { onOpen: () => void }) {
+   815→  return (
+   816→    <div className="rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-400 p-px shadow-card">
+   817→      <button
+   818→        type="button"
+   819→        onClick={onOpen}
+   820→        className="press flex w-full items-center gap-3 rounded-[calc(1rem-1px)] bg-background px-4 py-3.5 text-left transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+   821→      >
+   822→        <span
+   823→          className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white"
+   824→          aria-hidden="true"
+   825→        >
+   826→          <Sparkles className="size-5" />
+   827→        </span>
+   828→        <span className="min-w-0 flex-1">
+   829→          <span className="block text-sm font-semibold">Weekly review</span>
+   830→          <span className="block truncate text-xs text-muted-foreground">
+   831→            Your week in one view — scores, wins &amp; moments
+   832→          </span>
+   833→        </span>
+   834→        <ChevronRight
+   835→          className="size-4 shrink-0 text-muted-foreground"
+   836→          aria-hidden="true"
+   837→        />
+   838→      </button>
+   839→    </div>
+   840→  );
+   841→}
+   842→
+   843→// ── Main view ────────────────────────────────────────────────
+   844→
+   845→export function InsightsView() {
+   846→  const setView = useUiStore((s) => s.setView);
+   847→  const [reviewOpen, setReviewOpen] = React.useState(false);
+   848→  const { data, isLoading, isError, refetch } = useQuery({
+   849→    queryKey: ["insights"],
+   850→    queryFn: statsApi.insights,
+   851→  });
+   852→
+   853→  if (isLoading) return <InsightsSkeleton />;
+   854→  if (isError || !data) {
+   855→    return <InsightsError onRetry={() => void refetch()} />;
+   856→  }
+   857→
+   858→  return (
+   859→    <div>
+   860→      <ViewHeader title="Insights" subtitle="Your productivity trends at a glance" />
+   861→
+   862→      <div className="space-y-4 sm:space-y-5">
+   863→        <FadeIn>
+   864→          <WeeklyReviewCta onOpen={() => setReviewOpen(true)} />
+   865→        </FadeIn>
+   866→
+   867→        <FadeIn delay={0.05}>
+   868→          <TotalsStrip totals={data.totals} />
+   869→        </FadeIn>
+   870→
+   871→        <FadeIn delay={0.1}>
+   872→          <HeatmapCard heatmap={data.heatmap} />
+   873→        </FadeIn>
+   874→
+   875→        <FadeIn delay={0.15}>
+   876→          <TasksTrendCard trend={data.todosTrend} />
+   877→        </FadeIn>
+   878→
+   879→        <FadeIn delay={0.2}>
+   880→          <HabitConsistencyCard
+   881→            habits={data.habitConsistency}
+   882→            onGoRoutine={() => setView("routine")}
+   883→          />
+   884→        </FadeIn>
+   885→
+   886→        {data.moodDistribution.length > 0 && (
+   887→          <FadeIn delay={0.25}>
+   888→            <MoodCard distribution={data.moodDistribution} />
+   889→          </FadeIn>
+   890→        )}
+   891→
+   892→        <FadeIn delay={0.3}>
+   893→          <FocusCard focus={data.focus} />
+   894→        </FadeIn>
+   895→
+   896→        <FadeIn delay={0.35}>
+   897→          <p className="pb-2 pt-1 text-center text-xs text-muted-foreground">
+   898→            Insights update as you use Momentum — complete tasks, check habits,
+   899→            write your diary.
+   900→          </p>
+   901→        </FadeIn>
+   902→      </div>
+   903→
+   904→      <ReviewDialog open={reviewOpen} onOpenChange={setReviewOpen} />
+   905→    </div>
+   906→  );
+   907→}
+   908→

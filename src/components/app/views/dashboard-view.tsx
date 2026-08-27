@@ -43,7 +43,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Skeleton } from "@/components/app/shared/skeleton";
+import { CountUp } from "@/components/app/shared/count-up";
 import { EmptyState } from "@/components/app/shared/empty-state";
 import { habitRingStyles } from "@/components/app/shared/badges";
 import { ProgressBar, ProgressRing } from "@/components/app/shared/progress";
@@ -119,7 +120,11 @@ function DashboardSkeleton() {
       <Skeleton className="h-24 rounded-2xl" />
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-32 rounded-2xl" />
+          <Skeleton
+            key={i}
+            shimmer={i === 0}
+            className="h-32 rounded-2xl"
+          />
         ))}
       </div>
       <Skeleton className="h-44 rounded-2xl" />
@@ -157,7 +162,7 @@ function DashboardHeader({ score }: { score: number }) {
         title="Your productivity score for today"
       >
         <Zap className="size-4" aria-hidden="true" />
-        {score}%
+        <CountUp value={score} />%
       </div>
     </header>
   );
@@ -194,6 +199,9 @@ function StatCards({ today }: { today: TodayStats }) {
           value={today.score}
           size={88}
           label={`${today.score}`}
+          labelNode={
+            <CountUp value={today.score} className="gradient-text" />
+          }
           sublabel="Score"
         />
       </Card>
@@ -243,7 +251,7 @@ function StatCards({ today }: { today: TodayStats }) {
           />
         </div>
         <p className="text-2xl font-bold leading-none tabular-nums">
-          {today.bestStreak}
+          <CountUp value={today.bestStreak} />
           <span className="ml-1 text-sm font-medium text-muted-foreground">
             day{today.bestStreak === 1 ? "" : "s"}
           </span>
@@ -362,15 +370,22 @@ function OverdueBanner({
 function FocusRow({
   todo,
   onToggle,
+  className,
+  style,
 }: {
   todo: Todo;
   onToggle: (todo: Todo) => void;
+  className?: string;
+  style?: React.CSSProperties;
 }) {
   const overdue = !todo.completed && isOverdue(todo.dueDate);
   const subtaskTotal = todo.subtasks.length;
   const subtaskDone = todo.subtasks.filter((s) => s.completed).length;
   return (
-    <div className="flex items-center gap-3 px-4 py-2.5">
+    <div
+      className={cn("flex items-center gap-3 px-4 py-2.5", className)}
+      style={style}
+    >
       <button
         type="button"
         role="checkbox"
@@ -457,10 +472,14 @@ function HabitChip({
   habit,
   weekDays,
   onToggle,
+  className,
+  style,
 }: {
   habit: Habit;
   weekDays: string[];
   onToggle: (habit: Habit) => void;
+  className?: string;
+  style?: React.CSSProperties;
 }) {
   const done = habit.doneToday;
   const doneMap: Record<string, boolean> = {};
@@ -471,8 +490,10 @@ function HabitChip({
       onClick={() => onToggle(habit)}
       aria-pressed={done}
       aria-label={`${done ? "Undo" : "Complete"} habit: ${habit.name}`}
+      style={style}
       className={cn(
         "flex w-36 shrink-0 flex-col gap-2 rounded-2xl border p-3 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.97]",
+        className,
         done
           ? habitRingStyles[habit.color] ?? habitRingStyles.teal
           : "bg-card hover:bg-muted/50"
@@ -754,11 +775,13 @@ export function DashboardView() {
             </p>
           ) : (
             <div className="divide-y divide-border/70 rounded-2xl border bg-card shadow-card">
-              {upcomingTodos.slice(0, 6).map((todo) => (
+              {upcomingTodos.slice(0, 6).map((todo, i) => (
                 <FocusRow
                   key={todo.id}
                   todo={todo}
                   onToggle={(t) => toggleTodo.mutate(t)}
+                  className="stagger-item card-lift"
+                  style={{ "--stagger": i } as React.CSSProperties}
                 />
               ))}
             </div>
@@ -778,12 +801,14 @@ export function DashboardView() {
             </p>
           ) : (
             <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-2 no-scrollbar">
-              {todayHabits.map((habit) => (
+              {todayHabits.map((habit, i) => (
                 <HabitChip
                   key={habit.id}
                   habit={habit}
                   weekDays={weekDays}
                   onToggle={(h) => toggleHabit.mutate(h)}
+                  className="stagger-item"
+                  style={{ "--stagger": i } as React.CSSProperties}
                 />
               ))}
             </div>

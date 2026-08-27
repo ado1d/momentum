@@ -9,6 +9,7 @@ import {
   Clock,
   Ellipsis,
   Flame,
+  GripVertical,
   Moon,
   Pencil,
   Plus,
@@ -67,6 +68,7 @@ import { ProgressBar, ProgressRing } from "@/components/app/shared/progress";
 import { habitDotStyles, habitRingStyles } from "@/components/app/shared/badges";
 import { WeekDots } from "@/components/app/shared/week-dots";
 import { habitsApi, routineApi } from "@/lib/api";
+import { arrayMove, useDragList, type DragItemState } from "@/lib/use-drag-list";
 import { formatKeyLabel, lastNDays, todayKey, weekdayOfKey } from "@/lib/dates";
 import {
   HABIT_COLORS,
@@ -214,21 +216,46 @@ interface HabitCardProps {
   onToggle: (habit: Habit) => void;
   onEdit: (habit: Habit) => void;
   onDelete: (habit: Habit) => void;
+  /** Drag-to-reorder state for this row. */
+  drag?: DragItemState;
 }
 
-function HabitCard({ habit, today, toggling, onToggle, onEdit, onDelete }: HabitCardProps) {
+function HabitCard({ habit, today, toggling, onToggle, onEdit, onDelete, drag }: HabitCardProps) {
   const doneMap: Record<string, boolean> = {};
   for (const log of habit.logs) doneMap[log.date] = true;
   const last7 = lastNDays(7, today);
 
   return (
     <Card
+      data-drag-item=""
+      style={drag?.style}
       className={cn(
         "rounded-2xl py-0 transition-all duration-300 hover:shadow-md hover:-translate-y-0.5 press",
-        habit.doneToday ? "border-primary/30 bg-primary/[0.03]" : "shadow-card"
+        habit.doneToday ? "border-primary/30 bg-primary/[0.03]" : "shadow-card",
+        drag?.isDragging && "select-none hover:translate-y-0",
+        drag?.indicator === "above" &&
+          "relative before:absolute before:inset-x-4 before:-top-2 before:h-0.5 before:rounded-full before:bg-emerald-500/90 before:content-['']",
+        drag?.indicator === "below" &&
+          "relative before:absolute before:inset-x-4 before:-bottom-2 before:h-0.5 before:rounded-full before:bg-emerald-500/90 before:content-['']"
       )}
     >
       <CardContent className="flex items-center gap-3 p-4">
+        {drag && (
+          <button
+            type="button"
+            onPointerDown={drag.onPointerDown}
+            aria-label={`Reorder habit: ${habit.name}`}
+            title="Drag to reorder"
+            className={cn(
+              "grid size-7 shrink-0 cursor-grab touch-none place-items-center rounded-lg opacity-60",
+              "-ml-1.5 text-muted-foreground/50 transition-colors hover:text-primary hover:opacity-100",
+              "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 active:cursor-grabbing"
+            )}
+          >
+            <GripVertical className="size-4" aria-hidden="true" />
+          </button>
+        )}
+
         <div
           className={cn(
             "flex size-11 shrink-0 items-center justify-center rounded-full border-2 text-lg",
@@ -492,6 +519,74 @@ function HabitFormDialog({ open, onOpenChange, habit, submitting, onSubmit }: Ha
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ── Habit group (one time-of-day section with drag-to-reorder) ──
+
+interface HabitGroupProps {
+  group: TimeOfDay;
+  habits: Habit[];
+  today: string;
+  togglingId: string | undefined;
+  onToggle: (habit: Habit) => void;
+  onEdit: (habit: Habit) => void;
+  onDelete: (habit: Habit) => void;
+  onReorder: (from: number, to: number) => void;
+}
+
+function HabitGroup({
+  group,
+  habits,
+  today,
+  togglingId,
+  onToggle,
+  onEdit,
+  onDelete,
+  onReorder,
+}: HabitGroupProps) {
+  const drag = useDragList({ count: habits.length, onReorder });
+  const meta = SECTION_META[group];
+  const GroupIcon = meta.icon;
+
+  return (
+    <section aria-label={meta.label}>
+      <div className="mb-2 flex items-center gap-2 px-1">
+        <span
+          className={cn(
+            "flex size-6 shrink-0 items-center justify-center rounded-lg",
+            meta.tint
+          )}
+          aria-hidden="true"
+        >
+          <GroupIcon className="size-3.5" />
+        </span>
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          {meta.label}
+        </h2>
+        <span className="text-xs tabular-nums text-muted-foreground/60">
+          {habits.length}
+        </span>
+        <span
+          aria-hidden="true"
+          className="h-px flex-1 bg-gradient-to-r from-border to-transparent"
+        />
+      </div>
+      <ul className="stagger-list space-y-3" data-drag-list>
+        {habits.map((habit, i) => (
+          <HabitCard
+            key={habit.id}
+            habit={habit}
+            today={today}
+            toggling={togglingId === habit.id}
+            onToggle={onToggle}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            drag={drag.itemState(i)}
+          />
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -912,6 +1007,33 @@ export function RoutineView() {
     onError: (e) => toast.error(e.message || "Could not add starter habits"),
   });
 
+  // Drag-to-reorder within one time-of-day group. The mutation receives the
+  // FULL habit id list in its new order (only the group's segment changed),
+  // so server sortOrders stay globally unique and GET /api/habits returns
+  // exactly the optimistic order.
+  const reorderHabit = useMutation({
+    mutationFn: (ids: string[]) => habitsApi.reorder(ids),
+    onMutate: async (ids) => {
+      await queryClient.cancelQueries({ queryKey: ["habits"] });
+      const previous = queryClient.getQueryData<Habit[]>(["habits"]);
+      if (previous) {
+        const byId = new Map(previous.map((h) => [h.id, h]));
+        const next = ids
+          .map((id) => byId.get(id))
+          .filter((h): h is Habit => h !== undefined);
+        if (next.length === previous.length) {
+          queryClient.setQueryData<Habit[]>(["habits"], next);
+        }
+      }
+      return { previous };
+    },
+    onError: (_e, _ids, ctx) => {
+      if (ctx?.previous) queryClient.setQueryData(["habits"], ctx.previous);
+      toast.error("Couldn't save the new order");
+    },
+    onSettled: () => invalidate(["habits", "stats"]),
+  });
+
   // ── Mutations: routine tasks ──
 
   const toggleTask = useMutation({
@@ -990,6 +1112,25 @@ export function RoutineView() {
 
   const openAddForTab = () => (tab === "habits" ? openNewHabit() : openNewTask());
 
+  /** Reorders one group's habits (from/to are indices within that group). */
+  const reorderGroup = (group: TimeOfDay, from: number, to: number) => {
+    const groupHabits = habits.filter((h) => h.timeOfDay === group);
+    if (
+      from === to ||
+      from < 0 ||
+      to < 0 ||
+      from >= groupHabits.length ||
+      to >= groupHabits.length
+    ) {
+      return;
+    }
+    const reordered = arrayMove(groupHabits, from, to);
+    const groupIds = new Set(groupHabits.map((h) => h.id));
+    let k = 0;
+    const ids = habits.map((h) => (groupIds.has(h.id) ? reordered[k++].id : h.id));
+    reorderHabit.mutate(ids);
+  };
+
   return (
     <div>
       <ViewHeader
@@ -1043,46 +1184,20 @@ export function RoutineView() {
               {TIME_ORDER.map((group) => {
                 const groupHabits = habits.filter((h) => h.timeOfDay === group);
                 if (groupHabits.length === 0) return null;
-                const GroupIcon = SECTION_META[group].icon;
                 return (
-                  <section key={group} aria-label={SECTION_META[group].label}>
-                    <div className="mb-2 flex items-center gap-2 px-1">
-                      <span
-                        className={cn(
-                          "flex size-6 shrink-0 items-center justify-center rounded-lg",
-                          SECTION_META[group].tint
-                        )}
-                        aria-hidden="true"
-                      >
-                        <GroupIcon className="size-3.5" />
-                      </span>
-                      <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                        {SECTION_META[group].label}
-                      </h2>
-                      <span className="text-xs tabular-nums text-muted-foreground/60">
-                        {groupHabits.length}
-                      </span>
-                      <span
-                        aria-hidden="true"
-                        className="h-px flex-1 bg-gradient-to-r from-border to-transparent"
-                      />
-                    </div>
-                    <ul className="stagger-list space-y-3">
-                      {groupHabits.map((habit) => (
-                        <HabitCard
-                          key={habit.id}
-                          habit={habit}
-                          today={today}
-                          toggling={
-                            toggleHabit.isPending && toggleHabit.variables?.id === habit.id
-                          }
-                          onToggle={(h) => toggleHabit.mutate(h)}
-                          onEdit={openEditHabit}
-                          onDelete={setHabitToDelete}
-                        />
-                      ))}
-                    </ul>
-                  </section>
+                  <HabitGroup
+                    key={group}
+                    group={group}
+                    habits={groupHabits}
+                    today={today}
+                    togglingId={
+                      toggleHabit.isPending ? toggleHabit.variables?.id : undefined
+                    }
+                    onToggle={(h) => toggleHabit.mutate(h)}
+                    onEdit={openEditHabit}
+                    onDelete={setHabitToDelete}
+                    onReorder={(from, to) => reorderGroup(group, from, to)}
+                  />
                 );
               })}
             </>

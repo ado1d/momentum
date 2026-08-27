@@ -26,7 +26,8 @@ import { useUiStore } from "@/lib/store";
 import { MOODS, type DayStat, type InsightsData, type Mood } from "@/lib/types";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Skeleton } from "@/components/app/shared/skeleton";
+import { CountUp } from "@/components/app/shared/count-up";
 import { EmptyState } from "@/components/app/shared/empty-state";
 import { habitDotStyles, habitRingStyles } from "@/components/app/shared/badges";
 import { ProgressBar } from "@/components/app/shared/progress";
@@ -173,7 +174,7 @@ function InsightsSkeleton() {
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-[78px] rounded-2xl" />
+          <Skeleton key={i} shimmer className="h-[78px] rounded-2xl" />
         ))}
       </div>
       <Skeleton className="h-64 rounded-2xl" />
@@ -203,19 +204,34 @@ function TotalsStrip({ totals }: { totals: InsightsData["totals"] }) {
     {
       icon: CheckCircle2,
       label: "Tasks completed",
-      value: totals.todosCompleted.toLocaleString(),
+      value: (
+        <CountUp
+          value={totals.todosCompleted}
+          format={(n) => n.toLocaleString()}
+        />
+      ),
       tile: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
     },
     {
       icon: BookOpen,
       label: "Diary entries",
-      value: totals.journalEntries.toLocaleString(),
+      value: (
+        <CountUp
+          value={totals.journalEntries}
+          format={(n) => n.toLocaleString()}
+        />
+      ),
       tile: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
     },
     {
       icon: Repeat,
       label: "Habit checks",
-      value: totals.habitChecks.toLocaleString(),
+      value: (
+        <CountUp
+          value={totals.habitChecks}
+          format={(n) => n.toLocaleString()}
+        />
+      ),
       tile: "bg-teal-500/15 text-teal-600 dark:text-teal-400",
     },
     {
@@ -231,8 +247,12 @@ function TotalsStrip({ totals }: { totals: InsightsData["totals"] }) {
       aria-label="All-time totals"
       className="grid grid-cols-2 gap-3 sm:grid-cols-4"
     >
-      {items.map(({ icon: Icon, label, value, tile }) => (
-        <Card key={label} className="gap-0 rounded-2xl p-4 sm:p-5">
+      {items.map(({ icon: Icon, label, value, tile }, i) => (
+        <Card
+          key={label}
+          className="stagger-item card-lift gap-0 rounded-2xl p-4 sm:p-5"
+          style={{ "--stagger": i } as React.CSSProperties}
+        >
           <div className="flex items-center gap-3">
             <span
               className={cn(

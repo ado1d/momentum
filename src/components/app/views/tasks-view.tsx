@@ -13,6 +13,7 @@ import {
   Clock,
   CloudOff,
   FileText,
+  GripVertical,
   ListChecks,
   ListTodo,
   Loader2,
@@ -26,6 +27,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { subtasksApi, todosApi } from "@/lib/api";
+import { arrayMove, useDragList, type DragItemState } from "@/lib/use-drag-list";
 import {
   addDaysToKey,
   dateToKey,
@@ -273,15 +275,43 @@ function GroupLabel({
 /** One checklist row inside an expanded task: checkbox + title + hover delete. */
 function SubtaskItem({
   subtask,
+  drag,
   onToggle,
   onDelete,
 }: {
   subtask: Subtask;
+  /** Drag-to-reorder state for this step. */
+  drag?: DragItemState;
   onToggle: (subtask: Subtask) => void;
   onDelete: (subtask: Subtask) => void;
 }) {
   return (
-    <div className="group/sub flex items-center gap-2 rounded-lg px-1 py-0.5 transition-colors hover:bg-muted/70">
+    <div
+      data-drag-item=""
+      style={drag?.style}
+      className={cn(
+        "group/sub flex items-center gap-2 rounded-lg px-1 py-0.5 transition-colors hover:bg-muted/70",
+        drag?.isDragging && "select-none",
+        drag?.indicator === "above" &&
+          "relative after:absolute after:inset-x-0 after:top-0 after:h-0.5 after:rounded-full after:bg-emerald-500/80 after:content-['']",
+        drag?.indicator === "below" &&
+          "relative after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full after:bg-emerald-500/80 after:content-['']"
+      )}
+    >
+      {drag && (
+        <button
+          type="button"
+          onPointerDown={drag.onPointerDown}
+          aria-label={`Reorder step: ${subtask.title}`}
+          title="Drag to reorder"
+          className={cn(
+            "flex size-6 shrink-0 cursor-grab touch-none place-items-center rounded-md text-muted-foreground/40",
+            "transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 active:cursor-grabbing"
+          )}
+        >
+          <GripVertical className="size-3.5" aria-hidden="true" />
+        </button>
+      )}
       <button
         type="button"
         role="checkbox"
@@ -339,13 +369,19 @@ function SubtaskChecklist({
   onAdd,
   onToggle,
   onDelete,
+  onReorder,
 }: {
   todo: Todo;
   onAdd: (todoId: string, title: string) => void;
   onToggle: (subtask: Subtask) => void;
   onDelete: (subtask: Subtask) => void;
+  onReorder: (todoId: string, from: number, to: number) => void;
 }) {
   const [title, setTitle] = React.useState("");
+  const drag = useDragList({
+    count: todo.subtasks.length,
+    onReorder: (from, to) => onReorder(todo.id, from, to),
+  });
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -358,16 +394,18 @@ function SubtaskChecklist({
 
   return (
     <div
+      data-drag-list=""
       className={cn(
         "mt-2 animate-in fade-in slide-in-from-top-1 space-y-0.5 rounded-xl border border-border/70 bg-muted/30 p-1.5 duration-200",
         todo.completed && "opacity-60"
       )}
       onClick={(e) => e.stopPropagation()}
     >
-      {todo.subtasks.map((s) => (
+      {todo.subtasks.map((s, i) => (
         <SubtaskItem
           key={s.id}
           subtask={s}
+          drag={drag.itemState(i)}
           onToggle={onToggle}
           onDelete={onDelete}
         />
@@ -400,6 +438,7 @@ function TodoRow({
   onAddSubtask,
   onToggleSubtask,
   onDeleteSubtask,
+  onReorderSubtask,
 }: {
   todo: Todo;
   onToggle: (todo: Todo) => void;
@@ -408,6 +447,7 @@ function TodoRow({
   onAddSubtask: (todoId: string, title: string) => void;
   onToggleSubtask: (subtask: Subtask) => void;
   onDeleteSubtask: (subtask: Subtask) => void;
+  onReorderSubtask: (todoId: string, from: number, to: number) => void;
 }) {
   const today = todayKey();
   const key = dueDayKey(todo);
@@ -564,6 +604,7 @@ function TodoRow({
             onAdd={onAddSubtask}
             onToggle={onToggleSubtask}
             onDelete={onDeleteSubtask}
+            onReorder={onReorderSubtask}
           />
         )}
       </div>
@@ -1025,6 +1066,52 @@ export function TasksView() {
     onSettled: invalidateTodos,
   });
 
+  // Drag-to-reorder of the steps inside one todo's checklist. Optimistic on
+  // ["todos","full"] (same conventions as toggle/delete above) with rollback.
+  const reorderSubtaskMutation = useMutation({
+    mutationFn: ({ ids }: { todoId: string; ids: string[] }) =>
+      subtasksApi.reorder(ids),
+    onMutate: async ({ todoId, ids }) => {
+      await queryClient.cancelQueries({ queryKey: ["todos", "full"] });
+      const prev = queryClient.getQueryData<Todo[]>(["todos", "full"]);
+      if (prev) {
+        queryClient.setQueryData<Todo[]>(
+          ["todos", "full"],
+          prev.map((t) => {
+            if (t.id !== todoId) return t;
+            const byId = new Map(t.subtasks.map((s) => [s.id, s]));
+            const next = ids
+              .map((id) => byId.get(id))
+              .filter((s): s is Subtask => s !== undefined);
+            if (next.length !== t.subtasks.length) return t;
+            return { ...t, subtasks: next };
+          })
+        );
+      }
+      return { prev };
+    },
+    onError: (_e, _vars, ctx) => {
+      if (ctx?.prev) {
+        queryClient.setQueryData(["todos", "full"], ctx.prev);
+      }
+      toast.error("Couldn't save the new order");
+    },
+    onSettled: invalidateTodos,
+  });
+
+  const reorderSubtask = (todoId: string, from: number, to: number) => {
+    const todo = todos.find((t) => t.id === todoId);
+    const steps = todo?.subtasks ?? [];
+    if (from === to || from < 0 || to < 0 || from >= steps.length || to >= steps.length) {
+      return;
+    }
+    const reordered = arrayMove(steps, from, to);
+    reorderSubtaskMutation.mutate({
+      todoId,
+      ids: reordered.map((s) => s.id),
+    });
+  };
+
   const today = todayKey();
   const tomorrow = addDaysToKey(today, 1);
 
@@ -1341,6 +1428,7 @@ export function TasksView() {
                     onDeleteSubtask={(subtask) =>
                       deleteSubtaskMutation.mutate(subtask)
                     }
+                    onReorderSubtask={reorderSubtask}
                   />
                 ))}
               </div>
@@ -1398,6 +1486,7 @@ export function TasksView() {
                       onDeleteSubtask={(subtask) =>
                         deleteSubtaskMutation.mutate(subtask)
                       }
+                      onReorderSubtask={reorderSubtask}
                     />
                   ))}
                 </div>

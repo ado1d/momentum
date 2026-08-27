@@ -7,10 +7,12 @@ import { formatDistanceToNow } from "date-fns";
 import {
   BookOpen,
   Check,
+  Keyboard,
   ListTodo,
   Loader2,
   Moon,
   Plus,
+  Sparkles,
   StickyNote,
   Sun,
   Target,
@@ -59,7 +61,15 @@ function Kbd({ children }: { children: React.ReactNode }) {
 const COMMAND_CLASSES =
   "**:data-[slot=command-input-wrapper]:h-12 [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group]]:px-2 [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3 [&_[cmdk-item]_svg]:h-5 [&_[cmdk-item]_svg]:w-5";
 
-export function CommandPalette() {
+export function CommandPalette({
+  onOpenShortcuts,
+  onOpenTour,
+}: {
+  /** Open the "?" keyboard shortcuts help dialog. */
+  onOpenShortcuts?: () => void;
+  /** Replay the first-run welcome tour. */
+  onOpenTour?: () => void;
+}) {
   const paletteOpen = useUiStore((s) => s.paletteOpen);
   const setPaletteOpen = useUiStore((s) => s.setPaletteOpen);
   const setView = useUiStore((s) => s.setView);
@@ -101,6 +111,42 @@ export function CommandPalette() {
   };
 
   const toggleTheme = () => setTheme(resolvedTheme === "dark" ? "light" : "dark");
+
+  // Help actions are matched client-side (cmdk filtering is disabled for the
+  // server-side search), so they also surface for queries like "shortcuts".
+  const helpMatches =
+    !hasQuery || /help|shortcut|key|tour|welcome|onboard|\?/i.test(q);
+
+  const helpGroup =
+    (onOpenShortcuts || onOpenTour) && helpMatches ? (
+      <CommandGroup heading="Help">
+        {onOpenShortcuts ? (
+          <CommandItem
+            value="action-shortcuts"
+            onSelect={() => {
+              setPaletteOpen(false);
+              onOpenShortcuts();
+            }}
+          >
+            <Keyboard className="text-primary" aria-hidden="true" />
+            <span className="flex-1">Help — keyboard shortcuts</span>
+            <span className="text-xs text-muted-foreground">?</span>
+          </CommandItem>
+        ) : null}
+        {onOpenTour ? (
+          <CommandItem
+            value="action-tour"
+            onSelect={() => {
+              setPaletteOpen(false);
+              onOpenTour();
+            }}
+          >
+            <Sparkles className="text-primary" aria-hidden="true" />
+            <span className="flex-1">Replay welcome tour</span>
+          </CommandItem>
+        ) : null}
+      </CommandGroup>
+    ) : null;
 
   return (
     <Dialog open={paletteOpen} onOpenChange={setPaletteOpen}>
@@ -319,6 +365,7 @@ export function CommandPalette() {
                 </CommandGroup>
               </>
             )}
+            {helpGroup}
           </CommandList>
 
           <div className="flex items-center gap-3 border-t px-3 py-2 text-[10px] text-muted-foreground">

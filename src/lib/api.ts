@@ -95,6 +95,8 @@ export const subtasksApi = {
   update: (id: string, patchBody: { title?: string; completed?: boolean }) =>
     patch<Subtask>(`/api/subtasks/${id}`, patchBody),
   remove: (id: string) => del<{ ok: boolean }>(`/api/subtasks/${id}`),
+  reorder: (ids: string[]) =>
+    post<{ ok: boolean }>("/api/subtasks/reorder", { ids }),
 };
 
 // ── Habits ───────────────────────────────────────────────────
@@ -106,6 +108,8 @@ export const habitsApi = {
   remove: (id: string) => del<{ ok: boolean }>(`/api/habits/${id}`),
   toggle: (id: string, date: string) =>
     post<ToggleResult>(`/api/habits/${id}/toggle`, { date }),
+  reorder: (ids: string[]) =>
+    post<{ ok: boolean }>("/api/habits/reorder", { ids }),
 };
 
 // ── Routine ──────────────────────────────────────────────────

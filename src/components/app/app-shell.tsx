@@ -1,16 +1,22 @@
 "use client";
 
 import * as React from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
+import { toast } from "sonner";
 import { Menu, Monitor, Moon, Plus, Search, Sun, Zap } from "lucide-react";
 import { MOBILE_MORE_NAV, MOBILE_PRIMARY_NAV, NAV_ITEMS } from "./nav-config";
 import { CommandPalette } from "./command-palette";
+import { OnboardingTour } from "./onboarding-tour";
+import { ShortcutsDialog } from "./shortcuts-dialog";
+import { settingsApi } from "@/lib/api";
 import { useUiStore } from "@/lib/store";
 import type { ViewId } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { BellMenu } from "./bell-menu";
+import { OfflineBadge } from "./offline-badge";
 
 function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
@@ -167,11 +173,75 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const setQuickAddOpen = useUiStore((s) => s.setQuickAddOpen);
   const setPaletteOpen = useUiStore((s) => s.setPaletteOpen);
   const [moreOpen, setMoreOpen] = React.useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
+  const [tourOpen, setTourOpen] = React.useState(false);
+  const queryClient = useQueryClient();
 
   const navigate = (v: ViewId) => {
     setView(v);
     setMoreOpen(false);
     if (typeof window !== "undefined") window.scrollTo({ top: 0 });
+  };
+
+  // Global "?" opens the shortcuts help; "n" opens quick add.
+  // Ignored while typing, when a modifier is held, or while any dialog,
+  // sheet, menu or listbox is open (⌘K / Esc stay global).
+  React.useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      const typing =
+        !!target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable);
+      if (typing) return;
+      if (
+        document.querySelector(
+          '[data-state="open"][role="dialog"], [data-state="open"][role="alertdialog"], [data-state="open"][role="menu"], [data-state="open"][role="listbox"]'
+        )
+      )
+        return;
+
+      if (e.key === "?") {
+        e.preventDefault();
+        setShortcutsOpen(true);
+      } else if (e.key === "n" || e.key === "N") {
+        e.preventDefault();
+        setQuickAddOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [setQuickAddOpen]);
+
+  // First run: open the welcome tour until settings.onboarded is true.
+  const tourChecked = React.useRef(false);
+  React.useEffect(() => {
+    if (tourChecked.current) return;
+    tourChecked.current = true;
+    settingsApi
+      .get()
+      .then((s) => {
+        if (!s.onboarded) setTourOpen(true);
+      })
+      .catch(() => {
+        /* Failed check — never nag. */
+      });
+  }, []);
+
+  // Completing (or dismissing) the tour marks the user as onboarded.
+  // The dialog itself is closed by OnboardingTour via onOpenChange.
+  const completeTour = () => {
+    settingsApi
+      .update({ onboarded: true })
+      .then(() => {
+        void queryClient.invalidateQueries({ queryKey: ["settings"] });
+      })
+      .catch(() => {
+        toast.error("Couldn't save that you've seen the tour — it may appear again.");
+      });
   };
 
   return (
@@ -296,7 +366,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </Sheet>
 
       {/* Global search / command palette (⌘K) */}
-      <CommandPalette />
+      <CommandPalette
+        onOpenShortcuts={() => setShortcutsOpen(true)}
+        onOpenTour={() => setTourOpen(true)}
+      />
+
+      {/* Keyboard shortcuts help (?) */}
+      <ShortcutsDialog
+        open={shortcutsOpen}
+        onOpenChange={setShortcutsOpen}
+        onReplayTour={() => {
+          setShortcutsOpen(false);
+          setTourOpen(true);
+        }}
+      />
+
+      {/* First-run welcome tour */}
+      <OnboardingTour
+        open={tourOpen}
+        onOpenChange={setTourOpen}
+        onComplete={completeTour}
+      />
+
+      {/* Offline indicator (fixed bottom-left, shown when disconnected) */}
+      <OfflineBadge />
     </div>
   );
 }

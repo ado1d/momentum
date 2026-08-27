@@ -274,6 +274,21 @@
   animation: view-in 0.25s ease-out both;
 }
 
+/* Staggered list entrance — same view-in keyframes, delayed per item via
+   the --stagger index custom property (capped at 8 → max 360ms delay).
+   Fill mode is "backwards" (not "both") so the finished animation never
+   locks `transform`, which would break press/hover feedback on the
+   interactive elements this utility is applied to. */
+.stagger-item {
+  animation: view-in 0.4s ease-out backwards;
+  animation-delay: calc(min(var(--stagger, 0), 8) * 45ms);
+}
+@media (prefers-reduced-motion: reduce) {
+  .stagger-item {
+    animation-delay: 0ms;
+  }
+}
+
 /* Subtle pulse for the FAB */
 @keyframes soft-pulse {
   0%, 100% {
@@ -367,13 +382,96 @@
   }
 }
 
+/* Shimmer sweep for loading skeletons — the ::after overlay only exists
+   when the user allows motion (same zero-residue pattern as
+   .bar-shimmer under prefers-reduced-motion). */
+@media (prefers-reduced-motion: no-preference) {
+  .skeleton-shimmer {
+    position: relative;
+    overflow: hidden;
+  }
+  .skeleton-shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background-image: linear-gradient(
+      100deg,
+      transparent 20%,
+      rgb(255 255 255 / 0.05) 42%,
+      rgb(255 255 255 / 0.15) 50%,
+      rgb(255 255 255 / 0.05) 58%,
+      transparent 80%
+    );
+    animation: skeleton-shimmer-sweep 1.8s ease-in-out infinite;
+  }
+}
+@keyframes skeleton-shimmer-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* Gentle hover lift for stat cards — hover-capable devices only.
+   Emerald-tinted shadow in light mode; lower alpha + darker base in dark. */
+@media (hover: hover) {
+  .card-lift {
+    transition:
+      transform 200ms ease,
+      box-shadow 200ms ease;
+  }
+  .card-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px -12px oklch(0.696 0.17 162.48 / 0.25);
+  }
+  .dark .card-lift:hover {
+    box-shadow:
+      0 8px 24px -12px oklch(0.696 0.17 162.48 / 0.15),
+      0 6px 16px -10px rgb(0 0 0 / 0.55);
+  }
+}
+
 /* Print: only show the print container */
 @media print {
+  @page {
+    margin: 14mm;
+  }
+  html,
+  body {
+    background: white !important;
+    color: black !important;
+  }
   body > *:not(#momentum-print) {
     display: none !important;
   }
   #momentum-print {
     display: block !important;
     position: static !important;
+    background: white !important;
+    color: #1a1a1a !important;
+  }
+  /* Keep headings and row-ish blocks from splitting across pages. The
+     export pipeline (printHtml / miniMarkdownToHtml / buildReviewHtml)
+     emits inline-styled heading DIVs, so target those alongside real
+     headings — the class hooks don't exist in that markup. */
+  #momentum-print h1,
+  #momentum-print h2,
+  #momentum-print h3,
+  #momentum-print div[style*="font-weight:700"],
+  #momentum-print table,
+  #momentum-print tr,
+  #momentum-print li {
+    break-inside: avoid;
+  }
+  /* Wrap long code/pre lines instead of clipping at the page edge. */
+  #momentum-print code,
+  #momentum-print pre {
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
   }
 }
+
+/* 5-d polish pass — count-up, stagger, shimmer, card-lift, print */

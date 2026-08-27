@@ -9,6 +9,7 @@ import {
   BookOpen,
   CheckCircle2,
   DatabaseBackup,
+  Download,
   FileJson,
   FileText,
   Loader2,
@@ -17,10 +18,13 @@ import {
   Printer,
   Settings as SettingsIcon,
   ShieldCheck,
+  Smartphone,
   Sparkles,
   StickyNote,
   TriangleAlert,
   Upload,
+  Wifi,
+  WifiOff,
   X,
   Zap,
 } from "lucide-react";
@@ -49,6 +53,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 
 import { ViewHeader } from "@/components/app/shared/view-header";
+import { useOnlineStatus } from "@/components/app/pwa-register";
 import { exportApi, importApi, settingsApi } from "@/lib/api";
 import {
   downloadJson,
@@ -582,6 +587,176 @@ function ImportSection() {
   );
 }
 
+// ── App install & offline ─────────────────────────────────
+
+/** Minimal shape of the non-standard beforeinstallprompt event. */
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+}
+
+/** True when running as an installed (standalone) app. */
+function isStandalone(): boolean {
+  if (typeof window === "undefined") return false;
+  const iOSStandalone = (window.navigator as Navigator & { standalone?: boolean })
+    .standalone;
+  return (
+    window.matchMedia("(display-mode: standalone)").matches ||
+    iOSStandalone === true
+  );
+}
+
+function AppOfflineSection() {
+  const online = useOnlineStatus();
+  const [installEvent, setInstallEvent] =
+    React.useState<BeforeInstallPromptEvent | null>(null);
+  const [installed, setInstalled] = React.useState(false);
+  const [installing, setInstalling] = React.useState(false);
+
+  React.useEffect(() => {
+    setInstalled(isStandalone());
+    const onBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault(); // keep our own Install button in charge
+      setInstallEvent(event as BeforeInstallPromptEvent);
+    };
+    const onAppInstalled = () => {
+      setInstallEvent(null);
+      setInstalled(true);
+    };
+    window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+    window.addEventListener("appinstalled", onAppInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", onAppInstalled);
+    };
+  }, []);
+
+  const install = async () => {
+    if (!installEvent || installing) return;
+    setInstalling(true);
+    try {
+      await installEvent.prompt();
+      const choice = await installEvent.userChoice;
+      if (choice.outcome === "accepted") {
+        toast.success("Momentum installed");
+        setInstalled(true);
+      }
+    } catch {
+      toast.error("Installation was interrupted — try again");
+    } finally {
+      setInstalling(false);
+      setInstallEvent(null); // the event can only be used once
+    }
+  };
+
+  return (
+    <Card className="rounded-2xl py-0 shadow-card">
+      <CardHeader className="p-4 pb-2 sm:p-6 sm:pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Smartphone className="size-4.5 text-primary" aria-hidden="true" />
+          App &amp; offline
+        </CardTitle>
+        <CardDescription>
+          Install Momentum on this device and keep using it without a
+          connection.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 p-4 pt-2 sm:p-6 sm:pt-2">
+        {/* Install app */}
+        <div className="space-y-2.5">
+          <p className="text-sm font-semibold">Install app</p>
+          {installEvent && !installed ? (
+            <div className="space-y-2">
+              <Button
+                type="button"
+                size="lg"
+                onClick={() => void install()}
+                disabled={installing}
+                className="w-full rounded-xl"
+              >
+                {installing ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Download className="size-4" aria-hidden="true" />
+                )}
+                {installing ? "Opening installer…" : "Install Momentum"}
+              </Button>
+              <p className="text-[11px] leading-relaxed text-muted-foreground/80">
+                Opens in its own window and works like a native app — no app
+                store needed.
+              </p>
+            </div>
+          ) : installed ? (
+            <div className="flex items-start gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3.5">
+              <CheckCircle2
+                className="mt-0.5 size-4.5 shrink-0 text-emerald-600 dark:text-emerald-400"
+                aria-hidden="true"
+              />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold">Momentum is installed</p>
+                <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                  You&apos;re running the installed app — it launches straight
+                  from your home screen or dock.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-start gap-2.5 rounded-xl border bg-muted/30 p-3.5 text-xs leading-relaxed text-muted-foreground">
+              <Download className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+              <p>
+                Use your browser menu →{" "}
+                <span className="font-medium text-foreground">Install app</span>{" "}
+                / Add to Home Screen to pin Momentum to your device.
+              </p>
+            </div>
+          )}
+        </div>
+
+        <Separator className="my-1" />
+
+        {/* Connection status — same hook that drives the offline badge */}
+        <div className="flex items-center justify-between gap-4 rounded-xl px-1 py-2.5">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">Connection</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {online
+                ? "Online — everything syncs live."
+                : "Offline — showing cached data."}
+            </p>
+          </div>
+          <Badge
+            variant="secondary"
+            aria-label={online ? "Connection status: online" : "Connection status: offline"}
+            className={cn(
+              "shrink-0 gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold",
+              online
+                ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                : "bg-amber-500/10 text-amber-700 dark:text-amber-400",
+            )}
+          >
+            {online ? (
+              <Wifi className="size-3" aria-hidden="true" />
+            ) : (
+              <WifiOff className="size-3" aria-hidden="true" />
+            )}
+            {online ? "Online" : "Offline"}
+          </Badge>
+        </div>
+
+        {/* Offline promise */}
+        <p className="flex items-start gap-2.5 text-xs leading-relaxed text-muted-foreground">
+          <Wifi
+            className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400"
+            aria-hidden="true"
+          />
+          Works offline — your recent dashboard data is cached for offline
+          viewing.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Main view ────────────────────────────────────────────────
 
 export function SettingsView() {
@@ -946,6 +1121,9 @@ export function SettingsView() {
 
           {/* ── Import & restore ── */}
           <ImportSection />
+
+          {/* ── App & offline (install + offline info) ── */}
+          <AppOfflineSection />
 
           {/* ── About ── */}
           <Card className="rounded-2xl py-0 shadow-card">

@@ -7,6 +7,12 @@ interface ProgressRingProps {
   size?: number;
   strokeWidth?: number;
   label?: string;
+  /**
+   * Optional node rendered in place of the plain `label` text (e.g. an
+   * animated <CountUp/>). `label` still drives the accessible name, so
+   * screen-reader output stays static while the visible number animates.
+   */
+  labelNode?: React.ReactNode;
   sublabel?: string;
   className?: string;
 }
@@ -16,6 +22,7 @@ export function ProgressRing({
   size = 96,
   strokeWidth = 9,
   label,
+  labelNode,
   sublabel,
   className,
 }: ProgressRingProps) {
@@ -53,7 +60,9 @@ export function ProgressRing({
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         {label && (
-          <span className="text-xl font-bold tabular-nums sm:text-2xl">{label}</span>
+          <span className="text-xl font-bold tabular-nums sm:text-2xl">
+            {labelNode ?? label}
+          </span>
         )}
         {sublabel && (
           <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
