@@ -9,13 +9,16 @@ import {
   Clock,
   Ellipsis,
   Flame,
+  Moon,
   Pencil,
   Plus,
   Repeat,
+  Sun,
   Sunrise,
   Trash2,
   TriangleAlert,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -91,18 +94,31 @@ const WEEKDAY_LETTERS = ["M", "T", "W", "T", "F", "S", "S"] as const;
 
 const TIME_ORDER: TimeOfDay[] = ["morning", "afternoon", "evening", "anytime"];
 
-const HABIT_GROUP_META: Record<TimeOfDay, { label: string; emoji: string }> = {
-  morning: { label: "Morning", emoji: "☀️" },
-  afternoon: { label: "Afternoon", emoji: "🌤️" },
-  evening: { label: "Evening", emoji: "🌙" },
-  anytime: { label: "Anytime", emoji: "🕒" },
-};
-
-const SECTION_META: Record<TimeOfDay, { label: string; emoji: string }> = {
-  morning: { label: "Morning", emoji: "🌅" },
-  afternoon: { label: "Afternoon", emoji: "☀️" },
-  evening: { label: "Evening", emoji: "🌙" },
-  anytime: { label: "Anytime", emoji: "🕒" },
+/** Section headers use tinted icon chips (no indigo/blue hues). */
+const SECTION_META: Record<
+  TimeOfDay,
+  { label: string; icon: LucideIcon; tint: string }
+> = {
+  morning: {
+    label: "Morning",
+    icon: Sunrise,
+    tint: "bg-amber-300/20 text-amber-600 dark:text-amber-300",
+  },
+  afternoon: {
+    label: "Afternoon",
+    icon: Sun,
+    tint: "bg-orange-400/15 text-orange-600 dark:text-orange-300",
+  },
+  evening: {
+    label: "Evening",
+    icon: Moon,
+    tint: "bg-teal-400/15 text-teal-600 dark:text-teal-300",
+  },
+  anytime: {
+    label: "Anytime",
+    icon: Clock,
+    tint: "bg-primary/10 text-primary",
+  },
 };
 
 const STARTER_HABITS: HabitInput[] = [
@@ -166,7 +182,7 @@ function TodayBanner({ habits }: { habits: Habit[] }) {
           strokeWidth={7}
           label={String(done)}
           sublabel={`of ${total}`}
-          className="shrink-0"
+          className="shrink-0 glow-ring"
         />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold sm:text-base">
@@ -175,11 +191,15 @@ function TodayBanner({ habits }: { habits: Habit[] }) {
           </p>
           <ProgressBar value={pct} className="mt-2 h-2.5" />
           <p className="mt-2 text-xs text-muted-foreground">
-            {allDone
-              ? "Perfect day! 🎉"
-              : remaining === 1
-                ? "Just one more — you are almost there."
-                : `${remaining} to go. Keep the momentum!`}
+            {allDone ? (
+              <span className="gradient-text text-sm font-semibold">
+                Perfect day! 🎉
+              </span>
+            ) : remaining === 1 ? (
+              "Just one more — you are almost there."
+            ) : (
+              `${remaining} to go. Keep the momentum!`
+            )}
           </p>
         </div>
       </CardContent>
@@ -271,7 +291,10 @@ function HabitCard({ habit, today, toggling, onToggle, onEdit, onDelete }: Habit
               "grid size-11 shrink-0 place-items-center rounded-full border-2 transition-all duration-200 active:scale-90",
               "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
               habit.doneToday
-                ? cn(habitDotStyles[habit.color], "border-transparent text-white shadow-sm")
+                ? cn(
+                    habitDotStyles[habit.color],
+                    "check-pulse border-transparent text-white shadow-sm"
+                  )
                 : "border-muted-foreground/25 text-transparent hover:border-muted-foreground/50 hover:bg-muted/50"
             )}
           >
@@ -499,7 +522,7 @@ function RoutineTaskRow({ task, toggling, onToggle, onEdit, onDelete }: TaskRowP
           "grid size-11 shrink-0 place-items-center rounded-full border-2 transition-all duration-200 active:scale-90",
           "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
           task.doneToday
-            ? "border-transparent bg-primary text-primary-foreground shadow-sm"
+            ? "check-pulse border-transparent bg-primary text-primary-foreground shadow-sm"
             : "border-muted-foreground/25 text-transparent hover:border-muted-foreground/50 hover:bg-muted/50"
         )}
       >
@@ -1020,18 +1043,29 @@ export function RoutineView() {
               {TIME_ORDER.map((group) => {
                 const groupHabits = habits.filter((h) => h.timeOfDay === group);
                 if (groupHabits.length === 0) return null;
+                const GroupIcon = SECTION_META[group].icon;
                 return (
-                  <section key={group} aria-label={HABIT_GROUP_META[group].label}>
+                  <section key={group} aria-label={SECTION_META[group].label}>
                     <div className="mb-2 flex items-center gap-2 px-1">
-                      <span className="text-sm" aria-hidden="true">
-                        {HABIT_GROUP_META[group].emoji}
+                      <span
+                        className={cn(
+                          "flex size-6 shrink-0 items-center justify-center rounded-lg",
+                          SECTION_META[group].tint
+                        )}
+                        aria-hidden="true"
+                      >
+                        <GroupIcon className="size-3.5" />
                       </span>
                       <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                        {HABIT_GROUP_META[group].label}
+                        {SECTION_META[group].label}
                       </h2>
                       <span className="text-xs tabular-nums text-muted-foreground/60">
                         {groupHabits.length}
                       </span>
+                      <span
+                        aria-hidden="true"
+                        className="h-px flex-1 bg-gradient-to-r from-border to-transparent"
+                      />
                     </div>
                     <ul className="stagger-list space-y-3">
                       {groupHabits.map((habit) => (
@@ -1075,19 +1109,28 @@ export function RoutineView() {
                 const sectionTasks = scheduledTasks.filter((t) => t.section === section);
                 if (sectionTasks.length === 0) return null;
                 const done = sectionTasks.filter((t) => t.doneToday).length;
+                const SectionIcon = SECTION_META[section].icon;
                 return (
                   <Card key={section} className="rounded-2xl shadow-card">
                     <CardContent className="p-4 sm:p-5">
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-base" aria-hidden="true">
-                            {SECTION_META[section].emoji}
-                          </span>
-                          <h3 className="text-sm font-semibold">
-                            {SECTION_META[section].label}
-                          </h3>
-                        </div>
-                        <span className="text-xs font-medium tabular-nums text-muted-foreground">
+                      <div className="mb-2 flex items-center gap-2">
+                        <span
+                          className={cn(
+                            "flex size-7 shrink-0 items-center justify-center rounded-lg",
+                            SECTION_META[section].tint
+                          )}
+                          aria-hidden="true"
+                        >
+                          <SectionIcon className="size-4" />
+                        </span>
+                        <h3 className="text-sm font-semibold">
+                          {SECTION_META[section].label}
+                        </h3>
+                        <span
+                          aria-hidden="true"
+                          className="h-px min-w-4 flex-1 bg-gradient-to-r from-border to-transparent"
+                        />
+                        <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
                           {done}/{sectionTasks.length} done
                         </span>
                       </div>

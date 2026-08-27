@@ -14,20 +14,34 @@ datasource db {
 // Tasks (todo list)
 // ─────────────────────────────────────────────────────────────
 model Todo {
-  id          String    @id @default(cuid())
+  id          String     @id @default(cuid())
   title       String
   notes       String?
-  priority    String    @default("medium") // low | medium | high | urgent
-  category    String    @default("personal") // personal | work | learning | health | other
+  priority    String     @default("medium") // low | medium | high | urgent
+  category    String     @default("personal") // personal | work | learning | health | other
   dueDate     DateTime? // date + optional time
   reminderAt  DateTime?
-  repeat      String    @default("none") // none | daily | weekdays | weekly | monthly
-  completed   Boolean   @default(false)
+  repeat      String     @default("none") // none | daily | weekdays | weekly | monthly
+  completed   Boolean    @default(false)
   completedAt DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  subtasks    Subtask[]
 
   @@index([completed, dueDate])
+}
+
+model Subtask {
+  id        String   @id @default(cuid())
+  todoId    String
+  todo      Todo     @relation(fields: [todoId], references: [id], onDelete: Cascade)
+  title     String
+  completed Boolean  @default(false)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([todoId, sortOrder])
 }
 
 // ─────────────────────────────────────────────────────────────

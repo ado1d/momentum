@@ -157,7 +157,7 @@ function NoteCard({ note, onOpen, onTogglePin, onDelete, pinPending }: NoteCardP
   return (
     <Card
       className={cn(
-        "mb-4 cursor-pointer break-inside-avoid rounded-2xl py-0 shadow-card transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 press",
+        "group relative mb-4 cursor-pointer break-inside-avoid rounded-2xl py-0 shadow-card transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 press",
         NOTE_CARD_STYLES[note.color] ?? NOTE_CARD_STYLES.default
       )}
       onClick={() => onOpen(note)}
@@ -172,10 +172,16 @@ function NoteCard({ note, onOpen, onTogglePin, onDelete, pinPending }: NoteCardP
       aria-label={`Open note: ${note.title || "Untitled note"}`}
     >
       <CardContent className="p-4 sm:p-5">
+        {note.pinned && (
+          <span
+            aria-hidden="true"
+            className="absolute inset-y-0 left-0 w-[3px] rounded-l-2xl bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500/70"
+          />
+        )}
         <div className="flex items-start gap-2">
           {note.pinned && (
             <Pin
-              className="mt-0.5 size-4 shrink-0 fill-amber-500 text-amber-500"
+              className="mt-0.5 size-4 shrink-0 fill-amber-500 text-amber-500 transition-transform duration-300 group-hover:rotate-45"
               aria-label="Pinned"
             />
           )}
@@ -727,7 +733,7 @@ export function NotesView() {
 
               {tags.length > 0 && (
                 <div
-                  className="flex gap-2 overflow-x-auto pb-1"
+                  className="fade-edges -mx-3 flex gap-2 overflow-x-auto px-3 pb-1"
                   role="group"
                   aria-label="Filter by tag"
                 >

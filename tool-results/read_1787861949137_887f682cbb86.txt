@@ -1,0 +1,848 @@
+     1→"use client";
+     2→
+     3→import * as React from "react";
+     4→import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+     5→import { toast } from "sonner";
+     6→import {
+     7→  Download,
+     8→  Ellipsis,
+     9→  Eye,
+    10→  FileText,
+    11→  Loader2,
+    12→  Pencil,
+    13→  Pin,
+    14→  PinOff,
+    15→  Plus,
+    16→  Printer,
+    17→  Search,
+    18→  StickyNote,
+    19→  Trash2,
+    20→  TriangleAlert,
+    21→  X,
+    22→} from "lucide-react";
+    23→
+    24→import { Badge } from "@/components/ui/badge";
+    25→import { Button } from "@/components/ui/button";
+    26→import {
+    27→  Card,
+    28→  CardContent,
+    29→} from "@/components/ui/card";
+    30→import {
+    31→  AlertDialog,
+    32→  AlertDialogAction,
+    33→  AlertDialogCancel,
+    34→  AlertDialogContent,
+    35→  AlertDialogDescription,
+    36→  AlertDialogFooter,
+    37→  AlertDialogHeader,
+    38→  AlertDialogTitle,
+    39→} from "@/components/ui/alert-dialog";
+    40→import {
+    41→  Dialog,
+    42→  DialogContent,
+    43→  DialogDescription,
+    44→  DialogFooter,
+    45→  DialogHeader,
+    46→  DialogTitle,
+    47→} from "@/components/ui/dialog";
+    48→import {
+    49→  DropdownMenu,
+    50→  DropdownMenuContent,
+    51→  DropdownMenuItem,
+    52→  DropdownMenuSeparator,
+    53→  DropdownMenuTrigger,
+    54→} from "@/components/ui/dropdown-menu";
+    55→import { Input } from "@/components/ui/input";
+    56→import { Label } from "@/components/ui/label";
+    57→import { Skeleton } from "@/components/ui/skeleton";
+    58→import { Switch } from "@/components/ui/switch";
+    59→import { Textarea } from "@/components/ui/textarea";
+    60→
+    61→import { EmptyState } from "@/components/app/shared/empty-state";
+    62→import { ViewHeader } from "@/components/app/shared/view-header";
+    63→import { MarkdownContent } from "@/components/app/shared/markdown";
+    64→import { exportApi, notesApi } from "@/lib/api";
+    65→import { downloadMarkdown, esc, miniMarkdownToHtml, printHtml } from "@/lib/export";
+    66→import { NOTE_COLORS, type Note, type NoteColor, type NoteInput } from "@/lib/types";
+    67→import { cn } from "@/lib/utils";
+    68→
+    69→// ── Constants ────────────────────────────────────────────────
+    70→
+    71→const NOTE_CARD_STYLES: Record<NoteColor, string> = {
+    72→  default: "bg-card border-border",
+    73→  yellow: "border-amber-500/30 bg-amber-500/10",
+    74→  green: "border-emerald-500/30 bg-emerald-500/10",
+    75→  rose: "border-rose-500/30 bg-rose-500/10",
+    76→  violet: "border-violet-500/30 bg-violet-500/10",
+    77→  teal: "border-teal-500/30 bg-teal-500/10",
+    78→};
+    79→
+    80→const SWATCH_STYLES: Record<NoteColor, string> = {
+    81→  default: "border border-border bg-card",
+    82→  yellow: "bg-amber-400",
+    83→  green: "bg-emerald-500",
+    84→  rose: "bg-rose-500",
+    85→  violet: "bg-violet-500",
+    86→  teal: "bg-teal-500",
+    87→};
+    88→
+    89→const COLOR_LABELS: Record<NoteColor, string> = {
+    90→  default: "Default",
+    91→  yellow: "Yellow",
+    92→  green: "Green",
+    93→  rose: "Rose",
+    94→  violet: "Violet",
+    95→  teal: "Teal",
+    96→};
+    97→
+    98→/** "Edited 2h ago" style relative timestamps */
+    99→function relativeTime(iso: string): string {
+   100→  const ms = Date.now() - new Date(iso).getTime();
+   101→  if (Number.isNaN(ms)) return "some time ago";
+   102→  const mins = Math.floor(ms / 60_000);
+   103→  if (mins < 1) return "just now";
+   104→  if (mins < 60) return `${mins}m ago`;
+   105→  const hours = Math.floor(mins / 60);
+   106→  if (hours < 24) return `${hours}h ago`;
+   107→  const days = Math.floor(hours / 24);
+   108→  if (days < 7) return `${days}d ago`;
+   109→  const weeks = Math.floor(days / 7);
+   110→  if (weeks < 5) return `${weeks}w ago`;
+   111→  return new Date(iso).toLocaleDateString(undefined, {
+   112→    month: "short",
+   113→    day: "numeric",
+   114→  });
+   115→}
+   116→
+   117→// ── Small shared pieces ──────────────────────────────────────
+   118→
+   119→function QueryError({ onRetry }: { onRetry: () => void }) {
+   120→  return (
+   121→    <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed bg-muted/30 px-6 py-12 text-center">
+   122→      <TriangleAlert className="size-8 text-muted-foreground" aria-hidden="true" />
+   123→      <div>
+   124→        <p className="text-sm font-semibold">Something went wrong</p>
+   125→        <p className="mt-1 text-xs text-muted-foreground">
+   126→          We could not load your notes. Try again in a moment.
+   127→        </p>
+   128→      </div>
+   129→      <Button variant="outline" size="sm" onClick={onRetry}>
+   130→        Try again
+   131→      </Button>
+   132→    </div>
+   133→  );
+   134→}
+   135→
+   136→function NotesSkeleton() {
+   137→  return (
+   138→    <div className="columns-1 gap-4 sm:columns-2" aria-busy="true" aria-label="Loading notes">
+   139→      {[0, 1, 2, 3].map((i) => (
+   140→        <Skeleton key={i} className="mb-4 break-inside-avoid rounded-2xl" style={{ height: `${120 + (i % 3) * 56}px` }} />
+   141→      ))}
+   142→    </div>
+   143→  );
+   144→}
+   145→
+   146→// ── Note card ────────────────────────────────────────────────
+   147→
+   148→interface NoteCardProps {
+   149→  note: Note;
+   150→  onOpen: (note: Note) => void;
+   151→  onTogglePin: (note: Note) => void;
+   152→  onDelete: (note: Note) => void;
+   153→  pinPending: boolean;
+   154→}
+   155→
+   156→function NoteCard({ note, onOpen, onTogglePin, onDelete, pinPending }: NoteCardProps) {
+   157→  return (
+   158→    <Card
+   159→      className={cn(
+   160→        "mb-4 cursor-pointer break-inside-avoid rounded-2xl py-0 shadow-card transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 press",
+   161→        NOTE_CARD_STYLES[note.color] ?? NOTE_CARD_STYLES.default
+   162→      )}
+   163→      onClick={() => onOpen(note)}
+   164→      onKeyDown={(e) => {
+   165→        if (e.key === "Enter" || e.key === " ") {
+   166→          e.preventDefault();
+   167→          onOpen(note);
+   168→        }
+   169→      }}
+   170→      role="button"
+   171→      tabIndex={0}
+   172→      aria-label={`Open note: ${note.title || "Untitled note"}`}
+   173→    >
+   174→      <CardContent className="p-4 sm:p-5">
+   175→        <div className="flex items-start gap-2">
+   176→          {note.pinned && (
+   177→            <Pin
+   178→              className="mt-0.5 size-4 shrink-0 fill-amber-500 text-amber-500"
+   179→              aria-label="Pinned"
+   180→            />
+   181→          )}
+   182→          <h3 className="min-w-0 flex-1 text-sm font-semibold leading-snug sm:text-base">
+   183→            {note.title || "Untitled note"}
+   184→          </h3>
+   185→          <DropdownMenu>
+   186→            <DropdownMenuTrigger asChild>
+   187→              <Button
+   188→                variant="ghost"
+   189→                size="icon"
+   190→                className="size-11 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
+   191→                aria-label={`Options for ${note.title || "untitled note"}`}
+   192→                onClick={(e) => e.stopPropagation()}
+   193→              >
+   194→                <Ellipsis className="size-5" aria-hidden="true" />
+   195→              </Button>
+   196→            </DropdownMenuTrigger>
+   197→            <DropdownMenuContent
+   198→              align="end"
+   199→              className="w-48"
+   200→              // The menu is portaled but still a React-tree child of the
+   201→              // card — stop the synthetic click from opening the editor.
+   202→              onClick={(e) => e.stopPropagation()}
+   203→            >
+   204→              <DropdownMenuItem
+   205→                disabled={pinPending}
+   206→                onSelect={() => onTogglePin(note)}
+   207→              >
+   208→                {note.pinned ? (
+   209→                  <>
+   210→                    <PinOff aria-hidden="true" /> Unpin
+   211→                  </>
+   212→                ) : (
+   213→                  <>
+   214→                    <Pin aria-hidden="true" /> Pin
+   215→                  </>
+   216→                )}
+   217→              </DropdownMenuItem>
+   218→              <DropdownMenuItem onSelect={() => onOpen(note)}>
+   219→                <Pencil aria-hidden="true" /> Edit
+   220→              </DropdownMenuItem>
+   221→              <DropdownMenuSeparator />
+   222→              <DropdownMenuItem variant="destructive" onSelect={() => onDelete(note)}>
+   223→                <Trash2 aria-hidden="true" /> Delete
+   224→              </DropdownMenuItem>
+   225→            </DropdownMenuContent>
+   226→          </DropdownMenu>
+   227→        </div>
+   228→
+   229→        {note.content.trim() ? (
+   230→          <MarkdownContent
+   231→            content={note.content}
+   232→            className="mt-1.5 line-clamp-4 text-muted-foreground"
+   233→          />
+   234→        ) : (
+   235→          <p className="mt-1.5 text-sm italic text-muted-foreground/70">Empty note</p>
+   236→        )}
+   237→
+   238→        <div className="mt-3 flex flex-wrap items-center gap-2">
+   239→          {note.tag && (
+   240→            <Badge
+   241→              variant="secondary"
+   242→              className="rounded-full px-2 py-0 text-[10px] font-medium"
+   243→            >
+   244→              # {note.tag}
+   245→            </Badge>
+   246→          )}
+   247→          <span className="ml-auto text-[11px] text-muted-foreground">
+   248→            Edited {relativeTime(note.updatedAt)}
+   249→          </span>
+   250→        </div>
+   251→      </CardContent>
+   252→    </Card>
+   253→  );
+   254→}
+   255→
+   256→// ── Note editor dialog ───────────────────────────────────────
+   257→
+   258→interface NoteFormValues {
+   259→  title: string;
+   260→  content: string;
+   261→  tag: string;
+   262→  color: NoteColor;
+   263→  pinned: boolean;
+   264→}
+   265→
+   266→function emptyNoteForm(): NoteFormValues {
+   267→  return { title: "", content: "", tag: "", color: "default", pinned: false };
+   268→}
+   269→
+   270→function noteToForm(note: Note): NoteFormValues {
+   271→  return {
+   272→    title: note.title,
+   273→    content: note.content,
+   274→    tag: note.tag ?? "",
+   275→    color: note.color,
+   276→    pinned: note.pinned,
+   277→  };
+   278→}
+   279→
+   280→interface NoteDialogProps {
+   281→  open: boolean;
+   282→  onOpenChange: (open: boolean) => void;
+   283→  note: Note | null;
+   284→  existingTags: string[];
+   285→  submitting: boolean;
+   286→  onSubmit: (values: NoteFormValues) => void;
+   287→}
+   288→
+   289→function NoteDialog({
+   290→  open,
+   291→  onOpenChange,
+   292→  note,
+   293→  existingTags,
+   294→  submitting,
+   295→  onSubmit,
+   296→}: NoteDialogProps) {
+   297→  const [values, setValues] = React.useState<NoteFormValues>(emptyNoteForm);
+   298→  const [preview, setPreview] = React.useState(false);
+   299→
+   300→  React.useEffect(() => {
+   301→    if (open) {
+   302→      setValues(note ? noteToForm(note) : emptyNoteForm());
+   303→      setPreview(false);
+   304→    }
+   305→  }, [open, note]);
+   306→
+   307→  const set = <K extends keyof NoteFormValues>(key: K, value: NoteFormValues[K]) =>
+   308→    setValues((prev) => ({ ...prev, [key]: value }));
+   309→
+   310→  const canSubmit = values.title.trim().length > 0 || values.content.trim().length > 0;
+   311→
+   312→  const submit = (e: React.FormEvent) => {
+   313→    e.preventDefault();
+   314→    if (!canSubmit) {
+   315→      toast.error("Write a title or some content first");
+   316→      return;
+   317→    }
+   318→    onSubmit(values);
+   319→  };
+   320→
+   321→  return (
+   322→    <Dialog open={open} onOpenChange={onOpenChange}>
+   323→      <DialogContent className="max-h-[88dvh] overflow-y-auto rounded-2xl sm:max-w-lg">
+   324→        <DialogHeader>
+   325→          <DialogTitle>{note ? "Edit note" : "New note"}</DialogTitle>
+   326→          <DialogDescription>
+   327→            {note ? "Refine your thoughts." : "Capture the idea before it slips away."}
+   328→          </DialogDescription>
+   329→        </DialogHeader>
+   330→
+   331→        <form onSubmit={submit} className="space-y-4">
+   332→          <div className="space-y-1.5">
+   333→            <Label htmlFor="note-title">Title</Label>
+   334→            <Input
+   335→              id="note-title"
+   336→              value={values.title}
+   337→              onChange={(e) => set("title", e.target.value)}
+   338→              placeholder="Give it a name (optional)"
+   339→              maxLength={120}
+   340→              className="rounded-xl"
+   341→            />
+   342→          </div>
+   343→
+   344→          <div className="space-y-1.5">
+   345→            <div className="flex items-center justify-between">
+   346→              <Label htmlFor="note-content">Content</Label>
+   347→              <Button
+   348→                type="button"
+   349→                variant="ghost"
+   350→                size="sm"
+   351→                className="h-8 gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground"
+   352→                onClick={() => setPreview((p) => !p)}
+   353→                aria-pressed={preview}
+   354→              >
+   355→                {preview ? (
+   356→                  <>
+   357→                    <Pencil className="size-3.5" aria-hidden="true" /> Edit
+   358→                  </>
+   359→                ) : (
+   360→                  <>
+   361→                    <Eye className="size-3.5" aria-hidden="true" /> Preview
+   362→                  </>
+   363→                )}
+   364→              </Button>
+   365→            </div>
+   366→            {preview ? (
+   367→              <div className="min-h-[13rem] rounded-xl border bg-muted/30 p-3">
+   368→                <p className="text-sm font-semibold">
+   369→                  {values.title.trim() || "Untitled note"}
+   370→                </p>
+   371→                {values.content.trim() ? (
+   372→                  <MarkdownContent content={values.content} className="mt-2" />
+   373→                ) : (
+   374→                  <p className="mt-2 text-sm italic text-muted-foreground/70">
+   375→                    Nothing to preview yet.
+   376→                  </p>
+   377→                )}
+   378→              </div>
+   379→            ) : (
+   380→              <>
+   381→                <Textarea
+   382→                  id="note-content"
+   383→                  value={values.content}
+   384→                  onChange={(e) => set("content", e.target.value)}
+   385→                  rows={10}
+   386→                  placeholder="Start writing… **bold**, *italics*, lists, `code` — markdown supported"
+   387→                  className="rounded-xl"
+   388→                />
+   389→                <p className="text-[11px] text-muted-foreground">
+   390→                  Markdown supported
+   391→                </p>
+   392→              </>
+   393→            )}
+   394→          </div>
+   395→
+   396→          <div className="grid gap-4 sm:grid-cols-2">
+   397→            <div className="space-y-1.5">
+   398→              <Label htmlFor="note-tag">Tag</Label>
+   399→              <Input
+   400→                id="note-tag"
+   401→                value={values.tag}
+   402→                onChange={(e) => set("tag", e.target.value)}
+   403→                placeholder="e.g. ideas"
+   404→                list="note-tag-suggestions"
+   405→                maxLength={40}
+   406→                className="rounded-xl"
+   407→              />
+   408→              <datalist id="note-tag-suggestions">
+   409→                {existingTags.map((t) => (
+   410→                  <option key={t} value={t} />
+   411→                ))}
+   412→              </datalist>
+   413→            </div>
+   414→
+   415→            <div className="space-y-1.5">
+   416→              <Label>Color</Label>
+   417→              <div className="flex flex-wrap items-center gap-2 pt-1">
+   418→                {NOTE_COLORS.map((c) => (
+   419→                  <button
+   420→                    key={c}
+   421→                    type="button"
+   422→                    aria-label={`Color: ${COLOR_LABELS[c]}`}
+   423→                    aria-pressed={values.color === c}
+   424→                    onClick={() => set("color", c)}
+   425→                    className={cn(
+   426→                      "flex size-9 items-center justify-center rounded-xl transition-all duration-200",
+   427→                      SWATCH_STYLES[c],
+   428→                      values.color === c
+   429→                        ? "scale-110 ring-2 ring-ring/60 ring-offset-2 ring-offset-background"
+   430→                        : "opacity-80 hover:scale-105 hover:opacity-100"
+   431→                    )}
+   432→                  >
+   433→                    {values.color === c && (
+   434→                      <span
+   435→                        className={cn(
+   436→                          "size-2 rounded-full",
+   437→                          c === "yellow" || c === "default" ? "bg-foreground" : "bg-white"
+   438→                        )}
+   439→                        aria-hidden="true"
+   440→                      />
+   441→                    )}
+   442→                  </button>
+   443→                ))}
+   444→              </div>
+   445→            </div>
+   446→          </div>
+   447→
+   448→          <div className="flex items-center justify-between rounded-xl border bg-muted/30 px-3 py-2.5">
+   449→            <div>
+   450→              <Label htmlFor="note-pinned" className="text-sm">
+   451→                Pin to top
+   452→              </Label>
+   453→              <p className="text-[11px] text-muted-foreground">
+   454→                Pinned notes always come first.
+   455→              </p>
+   456→            </div>
+   457→            <Switch
+   458→              id="note-pinned"
+   459→              checked={values.pinned}
+   460→              onCheckedChange={(checked) => set("pinned", checked)}
+   461→              aria-label="Pin note to top"
+   462→            />
+   463→          </div>
+   464→
+   465→          <DialogFooter>
+   466→            <Button
+   467→              type="button"
+   468→              variant="outline"
+   469→              className="h-11 rounded-xl"
+   470→              onClick={() => onOpenChange(false)}
+   471→            >
+   472→              Cancel
+   473→            </Button>
+   474→            <Button type="submit" className="h-11 rounded-xl" disabled={submitting}>
+   475→              {submitting && <Loader2 className="animate-spin" aria-hidden="true" />}
+   476→              {note ? "Save changes" : "Create note"}
+   477→            </Button>
+   478→          </DialogFooter>
+   479→        </form>
+   480→      </DialogContent>
+   481→    </Dialog>
+   482→  );
+   483→}
+   484→
+   485→// ── Main view ────────────────────────────────────────────────
+   486→
+   487→export function NotesView() {
+   488→  const queryClient = useQueryClient();
+   489→
+   490→  const { data: notes = [], isLoading, isError, refetch } = useQuery({
+   491→    queryKey: ["notes"],
+   492→    queryFn: notesApi.list,
+   493→  });
+   494→
+   495→  const [search, setSearch] = React.useState("");
+   496→  const [activeTag, setActiveTag] = React.useState<string>("all");
+   497→
+   498→  const [dialogOpen, setDialogOpen] = React.useState(false);
+   499→  const [editingNote, setEditingNote] = React.useState<Note | null>(null);
+   500→  const [noteToDelete, setNoteToDelete] = React.useState<Note | null>(null);
+   501→  const [exporting, setExporting] = React.useState<string | null>(null);
+   502→
+   503→  const invalidate = (keys: string[]) => {
+   504→    for (const key of keys) void queryClient.invalidateQueries({ queryKey: [key] });
+   505→  };
+   506→
+   507→  // ── Derived data ──
+   508→
+   509→  const tags = React.useMemo(
+   510→    () =>
+   511→      Array.from(
+   512→        new Set(notes.map((n) => n.tag).filter((t): t is string => !!t))
+   513→      ).sort((a, b) => a.localeCompare(b)),
+   514→    [notes]
+   515→  );
+   516→
+   517→  const query = search.trim().toLowerCase();
+   518→  const filtered = notes.filter((n) => {
+   519→    if (activeTag !== "all" && n.tag !== activeTag) return false;
+   520→    if (!query) return true;
+   521→    return (
+   522→      n.title.toLowerCase().includes(query) ||
+   523→      n.content.toLowerCase().includes(query) ||
+   524→      (n.tag ?? "").toLowerCase().includes(query)
+   525→    );
+   526→  });
+   527→
+   528→  // ── Mutations ──
+   529→
+   530→  const saveNote = useMutation({
+   531→    mutationFn: (vars: { id?: string; input: NoteInput }) =>
+   532→      vars.id ? notesApi.update(vars.id, vars.input) : notesApi.create(vars.input),
+   533→    onSuccess: (_result, vars) => {
+   534→      invalidate(["notes", "stats"]);
+   535→      toast.success(vars.id ? "Note updated" : "Note created");
+   536→      setDialogOpen(false);
+   537→    },
+   538→    onError: (e) => toast.error(e.message || "Could not save note"),
+   539→  });
+   540→
+   541→  const patchNote = useMutation({
+   542→    mutationFn: (vars: { note: Note; patch: NoteInput }) =>
+   543→      notesApi.update(vars.note.id, vars.patch),
+   544→    onMutate: async ({ note, patch }) => {
+   545→      await queryClient.cancelQueries({ queryKey: ["notes"] });
+   546→      const previous = queryClient.getQueryData<Note[]>(["notes"]);
+   547→      queryClient.setQueryData<Note[]>(["notes"], (old) =>
+   548→        (old ?? []).map((n) => (n.id === note.id ? { ...n, ...patch } : n))
+   549→      );
+   550→      return { previous };
+   551→    },
+   552→    onError: (error, _vars, context) => {
+   553→      if (context?.previous) queryClient.setQueryData(["notes"], context.previous);
+   554→      toast.error(error.message || "Could not update note");
+   555→    },
+   556→    onSettled: () => invalidate(["notes", "stats"]),
+   557→  });
+   558→
+   559→  const removeNote = useMutation({
+   560→    mutationFn: (id: string) => notesApi.remove(id),
+   561→    onSuccess: () => {
+   562→      invalidate(["notes", "stats"]);
+   563→      toast.success("Note deleted");
+   564→      setNoteToDelete(null);
+   565→    },
+   566→    onError: (e) => toast.error(e.message || "Could not delete note"),
+   567→  });
+   568→
+   569→  // ── Handlers ──
+   570→
+   571→  const openNewNote = () => {
+   572→    setEditingNote(null);
+   573→    setDialogOpen(true);
+   574→  };
+   575→
+   576→  const openEditNote = (note: Note) => {
+   577→    setEditingNote(note);
+   578→    setDialogOpen(true);
+   579→  };
+   580→
+   581→  const submitNote = (values: NoteFormValues) => {
+   582→    saveNote.mutate({
+   583→      id: editingNote?.id,
+   584→      input: {
+   585→        title: values.title.trim() || "Untitled note",
+   586→        content: values.content,
+   587→        tag: values.tag.trim().toLowerCase() || null,
+   588→        color: values.color,
+   589→        pinned: values.pinned,
+   590→      },
+   591→    });
+   592→  };
+   593→
+   594→  const togglePin = (note: Note) => {
+   595→    patchNote.mutate({
+   596→      note,
+   597→      patch: { pinned: !note.pinned },
+   598→    });
+   599→  };
+   600→
+   601→  const runExport = async (
+   602→    id: string,
+   603→    label: string,
+   604→    fn: () => Promise<void> | void
+   605→  ) => {
+   606→    setExporting(id);
+   607→    const toastId = toast.loading(`Preparing ${label}…`);
+   608→    try {
+   609→      await fn();
+   610→      toast.success(`${label} ready`, { id: toastId });
+   611→    } catch (e) {
+   612→      toast.error(
+   613→        e instanceof Error ? e.message : `${label} failed`,
+   614→        { id: toastId }
+   615→      );
+   616→    } finally {
+   617→      setExporting(null);
+   618→    }
+   619→  };
+   620→
+   621→  const exportMarkdown = () =>
+   622→    runExport("md", "Markdown export", async () => {
+   623→      const md = await exportApi.markdown("notes");
+   624→      downloadMarkdown(md, "momentum-notes.md");
+   625→    });
+   626→
+   627→  const exportPdf = () =>
+   628→    runExport("pdf", "PDF export", async () => {
+   629→      if (notes.length === 0) {
+   630→        toast.error("Nothing to export yet");
+   631→        return;
+   632→      }
+   633→      const html = notes
+   634→        .map(
+   635→          (n) => `
+   636→        <div>
+   637→          <div style="font-size:17px; font-weight:700; margin:18px 0 4px;">${esc(n.title || "Untitled note")}${n.pinned ? " 📌" : ""}</div>
+   638→          ${n.tag ? `<div style="font-size:11px; color:#777; margin-bottom:6px;"># ${esc(n.tag)}</div>` : ""}
+   639→          ${miniMarkdownToHtml(n.content)}
+   640→          <hr style="border:none; border-top:1px solid #e3e3e3; margin:16px 0 4px;" />
+   641→        </div>`
+   642→        )
+   643→        .join("");
+   644→      printHtml("Notes", html);
+   645→    });
+   646→
+   647→  const exportBusy = exporting !== null;
+   648→
+   649→  // ── Render ──
+   650→
+   651→  return (
+   652→    <div>
+   653→      <ViewHeader
+   654→        title="Notes"
+   655→        subtitle="Quick capture & ideas"
+   656→        actions={
+   657→          <>
+   658→            <DropdownMenu>
+   659→              <DropdownMenuTrigger asChild>
+   660→                <Button
+   661→                  variant="outline"
+   662→                  size="icon"
+   663→                  className="size-11 rounded-xl"
+   664→                  aria-label="Export notes"
+   665→                  disabled={exportBusy}
+   666→                >
+   667→                  {exportBusy ? (
+   668→                    <Loader2 className="animate-spin" aria-hidden="true" />
+   669→                  ) : (
+   670→                    <Download aria-hidden="true" />
+   671→                  )}
+   672→                </Button>
+   673→              </DropdownMenuTrigger>
+   674→              <DropdownMenuContent align="end" className="w-56">
+   675→                <DropdownMenuItem onSelect={exportMarkdown}>
+   676→                  <FileText aria-hidden="true" /> Export notes (Markdown)
+   677→                </DropdownMenuItem>
+   678→                <DropdownMenuItem onSelect={exportPdf}>
+   679→                  <Printer aria-hidden="true" /> Export notes (PDF)
+   680→                </DropdownMenuItem>
+   681→              </DropdownMenuContent>
+   682→            </DropdownMenu>
+   683→            <Button className="h-11 rounded-xl" onClick={openNewNote}>
+   684→              <Plus aria-hidden="true" /> New note
+   685→            </Button>
+   686→          </>
+   687→        }
+   688→      />
+   689→
+   690→      {isLoading ? (
+   691→        <>
+   692→          <div className="mb-4 space-y-3">
+   693→            <Skeleton className="h-11 w-full rounded-xl" />
+   694→            <Skeleton className="h-9 w-2/3 rounded-full" />
+   695→          </div>
+   696→          <NotesSkeleton />
+   697→        </>
+   698→      ) : isError ? (
+   699→        <QueryError onRetry={() => void refetch()} />
+   700→      ) : (
+   701→        <div className="space-y-4">
+   702→          {notes.length > 0 && (
+   703→            <div className="space-y-3">
+   704→              <div className="relative">
+   705→                <Search
+   706→                  className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+   707→                  aria-hidden="true"
+   708→                />
+   709→                <Input
+   710→                  value={search}
+   711→                  onChange={(e) => setSearch(e.target.value)}
+   712→                  placeholder="Search notes by title, content or tag…"
+   713→                  aria-label="Search notes"
+   714→                  className="h-11 rounded-xl pl-9 pr-10"
+   715→                />
+   716→                {search && (
+   717→                  <button
+   718→                    type="button"
+   719→                    onClick={() => setSearch("")}
+   720→                    className="absolute right-1.5 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+   721→                    aria-label="Clear search"
+   722→                  >
+   723→                    <X className="size-4" aria-hidden="true" />
+   724→                  </button>
+   725→                )}
+   726→              </div>
+   727→
+   728→              {tags.length > 0 && (
+   729→                <div
+   730→                  className="flex gap-2 overflow-x-auto pb-1"
+   731→                  role="group"
+   732→                  aria-label="Filter by tag"
+   733→                >
+   734→                  <button
+   735→                    type="button"
+   736→                    onClick={() => setActiveTag("all")}
+   737→                    aria-pressed={activeTag === "all"}
+   738→                    className={cn(
+   739→                      "shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors",
+   740→                      activeTag === "all"
+   741→                        ? "border-primary bg-primary text-primary-foreground"
+   742→                        : "border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
+   743→                    )}
+   744→                  >
+   745→                    All ({notes.length})
+   746→                  </button>
+   747→                  {tags.map((tag) => {
+   748→                    const count = notes.filter((n) => n.tag === tag).length;
+   749→                    return (
+   750→                      <button
+   751→                        key={tag}
+   752→                        type="button"
+   753→                        onClick={() => setActiveTag(activeTag === tag ? "all" : tag)}
+   754→                        aria-pressed={activeTag === tag}
+   755→                        className={cn(
+   756→                          "shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors",
+   757→                          activeTag === tag
+   758→                            ? "border-primary bg-primary text-primary-foreground"
+   759→                            : "border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
+   760→                        )}
+   761→                      >
+   762→                        # {tag} ({count})
+   763→                      </button>
+   764→                    );
+   765→                  })}
+   766→                </div>
+   767→              )}
+   768→            </div>
+   769→          )}
+   770→
+   771→          {notes.length === 0 ? (
+   772→            <EmptyState
+   773→              icon={StickyNote}
+   774→              title="No notes yet"
+   775→              description="Capture ideas, snippets and lists before they escape. They'll be right here, pinned or searchable."
+   776→              actionLabel="New note"
+   777→              onAction={openNewNote}
+   778→            />
+   779→          ) : filtered.length === 0 ? (
+   780→            <EmptyState
+   781→              icon={Search}
+   782→              title="No matching notes"
+   783→              description={
+   784→                query
+   785→                  ? `Nothing matches “${search.trim()}”. Try a different word or clear the filters.`
+   786→                  : "No notes carry this tag yet."
+   787→              }
+   788→              actionLabel="Clear filters"
+   789→              onAction={() => {
+   790→                setSearch("");
+   791→                setActiveTag("all");
+   792→              }}
+   793→            />
+   794→          ) : (
+   795→            <div className="stagger-list columns-1 gap-4 sm:columns-2">
+   796→              {filtered.map((note) => (
+   797→                <NoteCard
+   798→                  key={note.id}
+   799→                  note={note}
+   800→                  onOpen={openEditNote}
+   801→                  onTogglePin={togglePin}
+   802→                  onDelete={setNoteToDelete}
+   803→                  pinPending={patchNote.isPending}
+   804→                />
+   805→              ))}
+   806→            </div>
+   807→          )}
+   808→        </div>
+   809→      )}
+   810→
+   811→      <NoteDialog
+   812→        open={dialogOpen}
+   813→        onOpenChange={setDialogOpen}
+   814→        note={editingNote}
+   815→        existingTags={tags}
+   816→        submitting={saveNote.isPending}
+   817→        onSubmit={submitNote}
+   818→      />
+   819→
+   820→      <AlertDialog
+   821→        open={noteToDelete !== null}
+   822→        onOpenChange={(open) => {
+   823→          if (!open) setNoteToDelete(null);
+   824→        }}
+   825→      >
+   826→        <AlertDialogContent className="rounded-2xl">
+   827→          <AlertDialogHeader>
+   828→            <AlertDialogTitle>Delete note?</AlertDialogTitle>
+   829→            <AlertDialogDescription>
+   830→              &ldquo;{noteToDelete?.title || "Untitled note"}&rdquo; will be permanently
+   831→              removed. This cannot be undone.
+   832→            </AlertDialogDescription>
+   833→          </AlertDialogHeader>
+   834→          <AlertDialogFooter>
+   835→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+   836→            <AlertDialogAction
+   837→              className="bg-destructive text-white hover:bg-destructive/90"
+   838→              onClick={() => noteToDelete && removeNote.mutate(noteToDelete.id)}
+   839→            >
+   840→              Delete
+   841→            </AlertDialogAction>
+   842→          </AlertDialogFooter>
+   843→        </AlertDialogContent>
+   844→      </AlertDialog>
+   845→    </div>
+   846→  );
+   847→}
+   848→

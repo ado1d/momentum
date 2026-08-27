@@ -32,7 +32,10 @@ export async function GET(req: Request) {
     const needle = q.toLowerCase();
 
     const [todoRows, noteRows, goalRows, journalRows, habitCtx] = await Promise.all([
-      db.todo.findMany({ orderBy: { createdAt: "desc" } }),
+      db.todo.findMany({
+        orderBy: { createdAt: "desc" },
+        include: { subtasks: { orderBy: { sortOrder: "asc" } } },
+      }),
       db.note.findMany({ orderBy: { updatedAt: "desc" } }),
       db.goal.findMany({ orderBy: { updatedAt: "desc" } }),
       db.journalEntry.findMany({ orderBy: { date: "desc" } }),

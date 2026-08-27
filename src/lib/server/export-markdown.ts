@@ -5,6 +5,7 @@ import type {
   Goal as GoalRow,
   JournalEntry as JournalEntryRow,
   Note as NoteRow,
+  Subtask as SubtaskRow,
   Todo as TodoRow,
 } from "@prisma/client";
 import { computeStreak, dayKeyOfDate } from "./daykeys";
@@ -13,7 +14,7 @@ import type { HabitWithLogs, RoutineTaskWithLogs } from "./service";
 export type ExportScope = "all" | "tasks" | "routine" | "notes" | "journal" | "goals";
 
 export interface ExportData {
-  todos: TodoRow[];
+  todos: (TodoRow & { subtasks?: SubtaskRow[] })[];
   habits: HabitWithLogs[];
   routineTasks: RoutineTaskWithLogs[];
   notes: NoteRow[];
@@ -71,7 +72,15 @@ function tasksSection(data: ExportData, out: string[]): void {
       if (t.dueDate) bits.push(`due ${dayKeyOfDate(t.dueDate)}`);
       if (t.repeat && t.repeat !== "none") bits.push(`repeats ${t.repeat}`);
       if (t.reminderAt) bits.push(`reminder ${dayKeyOfDate(t.reminderAt)}`);
+      const subs = (t.subtasks ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder);
+      if (subs.length > 0) {
+        const done = subs.filter((s) => s.completed).length;
+        bits.push(`checklist ${done}/${subs.length}`);
+      }
       out.push(`- ${bits.join(" · ")}`);
+      for (const s of subs) {
+        out.push(`  - [${s.completed ? "x" : " "}] ${s.title}`);
+      }
       if (t.notes) out.push(`  ${indentBlockquote(t.notes)}`);
     }
     out.push("");

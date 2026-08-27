@@ -52,6 +52,11 @@ export async function PATCH(req: Request, ctx: RouteContext) {
         const delta = nextDue.getTime() - existing.dueDate.getTime();
         nextReminder = new Date(existing.reminderAt.getTime() + delta);
       }
+      // Carry the checklist over to the next occurrence — all items unchecked.
+      const checklist = await db.subtask.findMany({
+        where: { todoId: id },
+        orderBy: { sortOrder: "asc" },
+      });
       await db.todo.create({
         data: {
           title: updated.title,
@@ -61,11 +66,21 @@ export async function PATCH(req: Request, ctx: RouteContext) {
           dueDate: nextDue,
           reminderAt: nextReminder,
           repeat: updated.repeat,
+          subtasks: {
+            create: checklist.map((s, i) => ({
+              title: s.title,
+              sortOrder: i,
+            })),
+          },
         },
       });
     }
 
-    return json(serializeTodo(updated));
+    const fresh = await db.todo.findUnique({
+      where: { id },
+      include: { subtasks: { orderBy: { sortOrder: "asc" } } },
+    });
+    return json(serializeTodo(fresh ?? updated));
   } catch (err) {
     return handleApiError(err);
   }

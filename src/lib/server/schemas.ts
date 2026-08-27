@@ -86,6 +86,16 @@ export const todoUpdateSchema = todoCreateSchema.partial().extend({
   completed: z.boolean().optional(),
 });
 
+// ── Subtasks ─────────────────────────────────────────────────
+export const subtaskCreateSchema = z.object({
+  title: z.string().trim().min(1, "Title is required").max(300),
+});
+
+export const subtaskUpdateSchema = z.object({
+  title: z.string().trim().min(1, "Title is required").max(300).optional(),
+  completed: z.boolean().optional(),
+});
+
 // ── Habits ───────────────────────────────────────────────────
 export const habitCreateSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(120),

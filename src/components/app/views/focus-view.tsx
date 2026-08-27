@@ -69,11 +69,13 @@ const MODE_LABEL: Record<Mode, string> = {
   long: "Long break",
 };
 
-/** Active pill styles for the segmented control (emerald / amber / teal). */
+/** Active pill styles for the segmented control (emerald / amber / teal gradients). */
 const MODE_TAB_ACTIVE: Record<Mode, string> = {
-  focus: "bg-primary text-primary-foreground shadow-sm",
-  short: "bg-amber-500 text-white shadow-sm dark:bg-amber-400 dark:text-amber-950",
-  long: "bg-teal-500 text-white shadow-sm dark:bg-teal-400 dark:text-teal-950",
+  focus:
+    "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-sm dark:from-emerald-400 dark:to-teal-400 dark:text-teal-950",
+  short:
+    "bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-sm dark:from-amber-400 dark:to-orange-400 dark:text-amber-950",
+  long: "bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-sm dark:from-teal-400 dark:to-emerald-400 dark:text-teal-950",
 };
 
 const DEFAULT_DURATIONS: Record<Mode, number> = { focus: 25, short: 5, long: 15 };
@@ -253,7 +255,11 @@ function SessionDots({ completed }: { completed: number }) {
             className={cn(
               "size-2.5 rounded-full transition-all duration-500",
               i < filled
-                ? "bg-primary"
+                ? cn(
+                    "bg-primary",
+                    i === filled - 1 &&
+                      "animate-in zoom-in-75 duration-300"
+                  )
                 : "bg-muted-foreground/25"
             )}
             style={
@@ -698,15 +704,15 @@ export function FocusView() {
     const diff = stats.weekMinutes - stats.lastWeekMinutes;
     if (diff > 0) {
       weekSub = (
-        <span className="inline-flex items-center gap-0.5 font-semibold text-primary">
-          <ChevronUp className="size-3.5" aria-hidden="true" />+{diff} vs last week
+        <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-300">
+          <ChevronUp className="size-3" aria-hidden="true" />+{diff} min vs last week
         </span>
       );
     } else if (diff < 0) {
       weekSub = (
-        <span className="inline-flex items-center gap-0.5 font-medium text-muted-foreground">
-          <ChevronDown className="size-3.5" aria-hidden="true" />
-          {diff} vs last week
+        <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+          <ChevronDown className="size-3" aria-hidden="true" />
+          {diff} min vs last week
         </span>
       );
     } else {
@@ -863,11 +869,24 @@ export function FocusView() {
                 role="img"
                 aria-label={`${MODE_LABEL[mode]} timer, ${clock} remaining`}
               >
+                {/* Ambient glow behind the ring — appears (and gently
+                    breathes) only while the timer is running. */}
+                <div
+                  aria-hidden="true"
+                  className={cn(
+                    "pointer-events-none absolute -inset-5 rounded-full blur-2xl transition-opacity duration-700",
+                    running ? "glow-pulse opacity-100" : "opacity-0"
+                  )}
+                  style={{
+                    background:
+                      "radial-gradient(circle, color-mix(in oklch, var(--focus-ring) 26%, transparent) 0%, transparent 68%)",
+                  }}
+                />
                 <svg
                   width={RING_SIZE}
                   height={RING_SIZE}
                   viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`}
-                  className="-rotate-90"
+                  className="relative -rotate-90"
                 >
                   <circle
                     cx={RING_SIZE / 2}
@@ -1018,7 +1037,7 @@ export function FocusView() {
                   </Button>
                 </form>
               ) : (
-                <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1.5 no-scrollbar">
+                <div className="fade-edges -mx-3 flex gap-2 overflow-x-auto px-3 pb-1.5 no-scrollbar">
                   {todosQuery.isLoading ? (
                     <>
                       <Skeleton className="h-11 w-32 shrink-0 rounded-full" />

@@ -1,0 +1,885 @@
+     1→"use client";
+     2→
+     3→import * as React from "react";
+     4→import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+     5→import { motion } from "framer-motion";
+     6→import {
+     7→  AlertTriangle,
+     8→  ArrowRight,
+     9→  BookOpen,
+    10→  Check,
+    11→  CloudOff,
+    12→  Flame,
+    13→  ListTodo,
+    14→  Loader2,
+    15→  Plus,
+    16→  Repeat,
+    17→  Sparkles,
+    18→  Target,
+    19→  Zap,
+    20→} from "lucide-react";
+    21→import { toast } from "sonner";
+    22→import { habitsApi, statsApi, todosApi } from "@/lib/api";
+    23→import {
+    24→  formatDueLabel,
+    25→  formatKeyLabel,
+    26→  formatKeyLong,
+    27→  friendlyDay,
+    28→  greeting,
+    29→  isOverdue,
+    30→  lastNDays,
+    31→  shortDayName,
+    32→  todayKey,
+    33→} from "@/lib/dates";
+    34→import { useUiStore } from "@/lib/store";
+    35→import {
+    36→  MOODS,
+    37→  type DashboardStats,
+    38→  type Habit,
+    39→  type Priority,
+    40→  type Todo,
+    41→} from "@/lib/types";
+    42→import { Badge } from "@/components/ui/badge";
+    43→import { Button } from "@/components/ui/button";
+    44→import { Card, CardTitle } from "@/components/ui/card";
+    45→import { Skeleton } from "@/components/ui/skeleton";
+    46→import { EmptyState } from "@/components/app/shared/empty-state";
+    47→import { habitRingStyles } from "@/components/app/shared/badges";
+    48→import { ProgressBar, ProgressRing } from "@/components/app/shared/progress";
+    49→import { WeekDots } from "@/components/app/shared/week-dots";
+    50→import { SectionHeading } from "@/components/app/shared/view-header";
+    51→import { cn } from "@/lib/utils";
+    52→
+    53→type TodayStats = DashboardStats["today"];
+    54→
+    55→const priorityDotStyles: Record<Priority, string> = {
+    56→  urgent: "bg-red-500",
+    57→  high: "bg-orange-500",
+    58→  medium: "bg-amber-500",
+    59→  low: "bg-muted-foreground/40",
+    60→};
+    61→
+    62→function ratio(done: number, total: number): number {
+    63→  return total > 0 ? Math.round((done / total) * 100) : 0;
+    64→}
+    65→
+    66→/** Light mount-only fade/slide so sections stagger in. */
+    67→function FadeIn({
+    68→  delay = 0,
+    69→  className,
+    70→  children,
+    71→}: {
+    72→  delay?: number;
+    73→  className?: string;
+    74→  children: React.ReactNode;
+    75→}) {
+    76→  return (
+    77→    <motion.div
+    78→      initial={{ opacity: 0, y: 10 }}
+    79→      animate={{ opacity: 1, y: 0 }}
+    80→      transition={{ duration: 0.3, delay, ease: "easeOut" }}
+    81→      className={className}
+    82→    >
+    83→      {children}
+    84→    </motion.div>
+    85→  );
+    86→}
+    87→
+    88→function SeeAllButton({
+    89→  label = "See all",
+    90→  onClick,
+    91→}: {
+    92→  label?: string;
+    93→  onClick: () => void;
+    94→}) {
+    95→  return (
+    96→    <Button
+    97→      variant="ghost"
+    98→      size="sm"
+    99→      onClick={onClick}
+   100→      className="h-7 gap-1 px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+   101→    >
+   102→      {label}
+   103→      <ArrowRight className="size-3.5" aria-hidden="true" />
+   104→    </Button>
+   105→  );
+   106→}
+   107→
+   108→function DashboardSkeleton() {
+   109→  return (
+   110→    <div className="space-y-6" aria-busy="true" aria-label="Loading dashboard">
+   111→      <div className="flex items-center justify-between gap-3">
+   112→        <div className="space-y-2">
+   113→          <Skeleton className="h-7 w-44" />
+   114→          <Skeleton className="h-4 w-60" />
+   115→        </div>
+   116→        <Skeleton className="size-10 rounded-full" />
+   117→      </div>
+   118→      <Skeleton className="h-24 rounded-2xl" />
+   119→      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+   120→        {Array.from({ length: 4 }).map((_, i) => (
+   121→          <Skeleton key={i} className="h-32 rounded-2xl" />
+   122→        ))}
+   123→      </div>
+   124→      <Skeleton className="h-44 rounded-2xl" />
+   125→      <Skeleton className="h-48 rounded-2xl" />
+   126→    </div>
+   127→  );
+   128→}
+   129→
+   130→function DashboardError({ onRetry }: { onRetry: () => void }) {
+   131→  return (
+   132→    <EmptyState
+   133→      icon={CloudOff}
+   134→      title="Couldn't load your dashboard"
+   135→      description="Something went wrong while fetching your data. Check your connection and try again."
+   136→      actionLabel="Try again"
+   137→      onAction={onRetry}
+   138→      className="mt-8"
+   139→    />
+   140→  );
+   141→}
+   142→
+   143→function DashboardHeader({ score }: { score: number }) {
+   144→  return (
+   145→    <header className="flex items-center justify-between gap-3">
+   146→      <div className="min-w-0">
+   147→        <h1 className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 bg-clip-text text-xl font-bold tracking-tight text-transparent sm:text-2xl dark:from-emerald-400 dark:via-teal-300 dark:to-emerald-400">
+   148→          {greeting()}
+   149→        </h1>
+   150→        <p className="mt-0.5 text-sm text-muted-foreground">
+   151→          {formatKeyLong(todayKey())}
+   152→        </p>
+   153→      </div>
+   154→      <div
+   155→        className="flex shrink-0 items-center gap-1.5 rounded-full border border-primary/25 bg-primary/10 px-3 py-1.5 text-sm font-bold tabular-nums text-primary shadow-sm"
+   156→        title="Your productivity score for today"
+   157→      >
+   158→        <Zap className="size-4" aria-hidden="true" />
+   159→        {score}%
+   160→      </div>
+   161→    </header>
+   162→  );
+   163→}
+   164→
+   165→function QuoteCard({ quote }: { quote: { text: string; author: string } }) {
+   166→  return (
+   167→    <div className="rounded-2xl bg-gradient-to-br from-emerald-500 via-teal-500 to-emerald-400 p-[1.5px] shadow-sm">
+   168→      <div className="flex items-start gap-3 rounded-[calc(1rem_-_1.5px)] bg-card p-5">
+   169→        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+   170→          <Sparkles className="size-5" aria-hidden="true" />
+   171→        </span>
+   172→        <div className="min-w-0">
+   173→          <blockquote className="text-sm font-medium leading-relaxed text-balance sm:text-base">
+   174→            &ldquo;{quote.text}&rdquo;
+   175→          </blockquote>
+   176→          <p className="mt-1.5 text-xs font-medium text-muted-foreground">
+   177→            &mdash; {quote.author}
+   178→          </p>
+   179→        </div>
+   180→      </div>
+   181→    </div>
+   182→  );
+   183→}
+   184→
+   185→function StatCards({ today }: { today: TodayStats }) {
+   186→  return (
+   187→    <section
+   188→      aria-label="Today at a glance"
+   189→      className="grid grid-cols-2 gap-3 sm:grid-cols-4"
+   190→    >
+   191→      <Card className="items-center justify-center gap-0 rounded-2xl p-4 py-5 text-center">
+   192→        <ProgressRing
+   193→          value={today.score}
+   194→          size={88}
+   195→          label={`${today.score}`}
+   196→          sublabel="Score"
+   197→        />
+   198→      </Card>
+   199→      <Card className="gap-2.5 rounded-2xl p-4 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md">
+   200→        <div className="flex items-center justify-between gap-2">
+   201→          <CardTitle className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+   202→            Tasks today
+   203→          </CardTitle>
+   204→          <ListTodo className="size-4 shrink-0 text-emerald-500/80" aria-hidden="true" />
+   205→        </div>
+   206→        <p className="text-2xl font-bold leading-none tabular-nums">
+   207→          {today.todosDone}
+   208→          <span className="text-base font-semibold text-muted-foreground/50">
+   209→            /{today.todosTotal}
+   210→          </span>
+   211→        </p>
+   212→        <ProgressBar value={ratio(today.todosDone, today.todosTotal)} barClassName="bg-emerald-500" />
+   213→      </Card>
+   214→      <Card className="gap-2.5 rounded-2xl p-4 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md">
+   215→        <div className="flex items-center justify-between gap-2">
+   216→          <CardTitle className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+   217→            Habits
+   218→          </CardTitle>
+   219→          <Repeat className="size-4 shrink-0 text-teal-500/80" aria-hidden="true" />
+   220→        </div>
+   221→        <p className="text-2xl font-bold leading-none tabular-nums">
+   222→          {today.habitsDone}
+   223→          <span className="text-base font-semibold text-muted-foreground/50">
+   224→            /{today.habitsTotal}
+   225→          </span>
+   226→        </p>
+   227→        <ProgressBar value={ratio(today.habitsDone, today.habitsTotal)} barClassName="bg-teal-500" />
+   228→      </Card>
+   229→      <Card className="gap-2.5 rounded-2xl p-4 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md">
+   230→        <div className="flex items-center justify-between gap-2">
+   231→          <CardTitle className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+   232→            Best streak
+   233→          </CardTitle>
+   234→          <Flame
+   235→            className={cn(
+   236→              "size-4 shrink-0",
+   237→              today.bestStreak > 0
+   238→                ? "text-orange-500"
+   239→                : "text-muted-foreground/40"
+   240→            )}
+   241→            aria-hidden="true"
+   242→          />
+   243→        </div>
+   244→        <p className="text-2xl font-bold leading-none tabular-nums">
+   245→          {today.bestStreak}
+   246→          <span className="ml-1 text-sm font-medium text-muted-foreground">
+   247→            day{today.bestStreak === 1 ? "" : "s"}
+   248→          </span>
+   249→        </p>
+   250→        <p className="text-xs text-muted-foreground">
+   251→          {today.bestStreak > 0 ? "Keep it alive" : "Start one today"}
+   252→        </p>
+   253→      </Card>
+   254→    </section>
+   255→  );
+   256→}
+   257→
+   258→function WeekCard({ week }: { week: DashboardStats["week"] }) {
+   259→  const today = todayKey();
+   260→  const avg = Math.round(week.reduce((s, d) => s + d.score, 0) / Math.max(1, week.length));
+   261→  return (
+   262→    <Card className="gap-3 rounded-2xl p-5">
+   263→      <div className="flex items-center justify-between gap-2">
+   264→        <CardTitle className="text-sm font-semibold">This week</CardTitle>
+   265→        <span className="flex items-center gap-2 text-xs text-muted-foreground">
+   266→          <span title="Average daily score this week">avg {avg}%</span>
+   267→          <span aria-hidden="true">·</span>
+   268→          <span>Last 7 days</span>
+   269→        </span>
+   270→      </div>
+   271→      <div>
+   272→        <div
+   273→          className="relative flex h-24 items-end gap-1.5 sm:gap-2"
+   274→          role="img"
+   275→          aria-label="Daily scores for the last 7 days"
+   276→        >
+   277→          {/* average marker line */}
+   278→          <div
+   279→            aria-hidden="true"
+   280→            className="pointer-events-none absolute inset-x-0 border-t border-dashed border-primary/30"
+   281→            style={{ bottom: `${Math.max(4, avg)}%` }}
+   282→          />
+   283→          {week.map((d) => {
+   284→            const isToday = d.date === today;
+   285→            return (
+   286→              <div
+   287→                key={d.date}
+   288→                className="group relative flex h-full flex-1 cursor-default items-end"
+   289→                title={`${formatKeyLabel(d.date)} · score ${d.score}% · ${d.todosCompleted} tasks, ${d.habitsCompleted} habits, ${d.routineCompleted} routine`}
+   290→              >
+   291→                <div
+   292→                  className={cn(
+   293→                    "w-full rounded-md transition-all duration-500 group-hover:brightness-110",
+   294→                    isToday
+   295→                      ? "bg-gradient-to-t from-primary to-emerald-400 shadow-sm shadow-primary/30"
+   296→                      : d.score > 0
+   297→                        ? "bg-primary/30 dark:bg-primary/35"
+   298→                        : "bg-muted"
+   299→                  )}
+   300→                  style={{ height: `${Math.max(4, d.score)}%` }}
+   301→                />
+   302→                {isToday && (
+   303→                  <span
+   304→                    className="pointer-events-none absolute left-1/2 -translate-x-1/2 rounded-full bg-primary px-1.5 py-px text-[9px] font-bold tabular-nums text-primary-foreground shadow-sm"
+   305→                    style={{ bottom: `calc(${Math.max(4, d.score)}% + 6px)` }}
+   306→                  >
+   307→                    {d.score}
+   308→                  </span>
+   309→                )}
+   310→              </div>
+   311→            );
+   312→          })}
+   313→        </div>
+   314→        <div className="mt-2 flex gap-1.5 sm:gap-2">
+   315→          {week.map((d) => (
+   316→            <span
+   317→              key={d.date}
+   318→              className={cn(
+   319→                "flex-1 text-center text-[10px] font-semibold uppercase",
+   320→                d.date === today ? "text-primary" : "text-muted-foreground/60"
+   321→              )}
+   322→            >
+   323→              {shortDayName(d.date).slice(0, 1)}
+   324→            </span>
+   325→          ))}
+   326→        </div>
+   327→      </div>
+   328→    </Card>
+   329→  );
+   330→}
+   331→
+   332→function OverdueBanner({
+   333→  count,
+   334→  onReview,
+   335→}: {
+   336→  count: number;
+   337→  onReview: () => void;
+   338→}) {
+   339→  return (
+   340→    <div
+   341→      role="alert"
+   342→      className="flex items-center gap-3 rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3"
+   343→    >
+   344→      <AlertTriangle className="size-5 shrink-0 text-destructive" aria-hidden="true" />
+   345→      <p className="min-w-0 flex-1 text-sm font-medium text-destructive">
+   346→        You have {count} overdue {count === 1 ? "task" : "tasks"}
+   347→      </p>
+   348→      <Button
+   349→        size="sm"
+   350→        variant="outline"
+   351→        onClick={onReview}
+   352→        className="shrink-0 gap-1.5 rounded-xl border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+   353→      >
+   354→        Review
+   355→        <ArrowRight className="size-3.5" aria-hidden="true" />
+   356→      </Button>
+   357→    </div>
+   358→  );
+   359→}
+   360→
+   361→function FocusRow({
+   362→  todo,
+   363→  onToggle,
+   364→}: {
+   365→  todo: Todo;
+   366→  onToggle: (todo: Todo) => void;
+   367→}) {
+   368→  const overdue = !todo.completed && isOverdue(todo.dueDate);
+   369→  return (
+   370→    <div className="flex items-center gap-3 px-4 py-2.5">
+   371→      <button
+   372→        type="button"
+   373→        role="checkbox"
+   374→        aria-checked={todo.completed}
+   375→        aria-label={`Mark "${todo.title}" ${todo.completed ? "incomplete" : "complete"}`}
+   376→        onClick={() => onToggle(todo)}
+   377→        className={cn(
+   378→          "relative mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200 active:scale-90",
+   379→          todo.completed
+   380→            ? "border-primary bg-primary text-primary-foreground shadow-sm"
+   381→            : "border-muted-foreground/30 hover:border-primary/60 hover:bg-primary/10"
+   382→        )}
+   383→      >
+   384→        <Check
+   385→          className={cn(
+   386→            "size-3.5 transition-all duration-200",
+   387→            todo.completed ? "scale-100 opacity-100" : "scale-50 opacity-0"
+   388→          )}
+   389→          strokeWidth={3}
+   390→          aria-hidden="true"
+   391→        />
+   392→        <span className="absolute -inset-2" aria-hidden="true" />
+   393→      </button>
+   394→      <span
+   395→        className={cn(
+   396→          "size-2 shrink-0 rounded-full",
+   397→          priorityDotStyles[todo.priority] ?? priorityDotStyles.low
+   398→        )}
+   399→        title={`${todo.priority} priority`}
+   400→        aria-hidden="true"
+   401→      />
+   402→      <p
+   403→        className={cn(
+   404→          "min-w-0 flex-1 truncate text-sm font-medium decoration-2 transition-colors duration-300",
+   405→          "line-through",
+   406→          todo.completed
+   407→            ? "text-muted-foreground/70 decoration-muted-foreground/50"
+   408→            : "text-foreground decoration-transparent"
+   409→        )}
+   410→      >
+   411→        {todo.title}
+   412→      </p>
+   413→      {todo.repeat !== "none" && (
+   414→        <span
+   415→          className="inline-flex shrink-0 items-center text-muted-foreground"
+   416→          title={`Repeats ${todo.repeat}`}
+   417→        >
+   418→          <Repeat className="size-3" aria-hidden="true" />
+   419→          <span className="sr-only">Repeats {todo.repeat}</span>
+   420→        </span>
+   421→      )}
+   422→      {todo.dueDate && (
+   423→        <span
+   424→          className={cn(
+   425→            "shrink-0 text-xs font-medium tabular-nums",
+   426→            overdue
+   427→              ? "text-red-600 dark:text-red-400"
+   428→              : "text-muted-foreground"
+   429→          )}
+   430→        >
+   431→          {formatDueLabel(todo.dueDate)}
+   432→        </span>
+   433→      )}
+   434→    </div>
+   435→  );
+   436→}
+   437→
+   438→function HabitChip({
+   439→  habit,
+   440→  weekDays,
+   441→  onToggle,
+   442→}: {
+   443→  habit: Habit;
+   444→  weekDays: string[];
+   445→  onToggle: (habit: Habit) => void;
+   446→}) {
+   447→  const done = habit.doneToday;
+   448→  const doneMap: Record<string, boolean> = {};
+   449→  for (const log of habit.logs) doneMap[log.date] = true;
+   450→  return (
+   451→    <button
+   452→      type="button"
+   453→      onClick={() => onToggle(habit)}
+   454→      aria-pressed={done}
+   455→      aria-label={`${done ? "Undo" : "Complete"} habit: ${habit.name}`}
+   456→      className={cn(
+   457→        "flex w-36 shrink-0 flex-col gap-2 rounded-2xl border p-3 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.97]",
+   458→        done
+   459→          ? habitRingStyles[habit.color] ?? habitRingStyles.teal
+   460→          : "bg-card hover:bg-muted/50"
+   461→      )}
+   462→    >
+   463→      <div className="flex w-full items-center justify-between gap-2">
+   464→        <span className="text-lg leading-none" aria-hidden="true">
+   465→          {habit.emoji}
+   466→        </span>
+   467→        <span
+   468→          className={cn(
+   469→            "flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200",
+   470→            done
+   471→              ? "border-primary bg-primary text-primary-foreground"
+   472→              : "border-muted-foreground/30 text-transparent"
+   473→          )}
+   474→        >
+   475→          <Check className="size-3" strokeWidth={3} aria-hidden="true" />
+   476→        </span>
+   477→      </div>
+   478→      <p className="min-h-[2rem] text-xs font-medium leading-snug line-clamp-2">
+   479→        {habit.name}
+   480→      </p>
+   481→      <WeekDots doneMap={doneMap} days={weekDays} />
+   482→    </button>
+   483→  );
+   484→}
+   485→
+   486→function OnboardingCard({
+   487→  habitsPending,
+   488→  onAddTask,
+   489→  onAddHabits,
+   490→  onSetGoal,
+   491→}: {
+   492→  habitsPending: boolean;
+   493→  onAddTask: () => void;
+   494→  onAddHabits: () => void;
+   495→  onSetGoal: () => void;
+   496→}) {
+   497→  return (
+   498→    <div className="rounded-2xl border bg-gradient-to-b from-primary/10 via-card to-card p-6 text-center shadow-card sm:p-8">
+   499→      <div className="mx-auto flex size-16 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-md">
+   500→        <Zap className="size-8" aria-hidden="true" />
+   501→      </div>
+   502→      <h2 className="mt-4 text-2xl font-bold tracking-tight">
+   503→        Welcome to Momentum 👋
+   504→      </h2>
+   505→      <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-balance text-muted-foreground">
+   506→        Track tasks, build habits, and grow toward your goals — one small win
+   507→        at a time. Add your first task, or let us set you up with a few
+   508→        starter habits.
+   509→      </p>
+   510→      <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+   511→        <Button onClick={onAddTask}>
+   512→          <Plus className="size-4" aria-hidden="true" />
+   513→          Add your first task
+   514→        </Button>
+   515→        <Button
+   516→          variant="outline"
+   517→          onClick={onAddHabits}
+   518→          disabled={habitsPending}
+   519→        >
+   520→          {habitsPending ? (
+   521→            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+   522→          ) : (
+   523→            <Repeat className="size-4" aria-hidden="true" />
+   524→          )}
+   525→          Add starter habits
+   526→        </Button>
+   527→        <Button variant="ghost" onClick={onSetGoal}>
+   528→          <Target className="size-4" aria-hidden="true" />
+   529→          Set a goal
+   530→        </Button>
+   531→      </div>
+   532→    </div>
+   533→  );
+   534→}
+   535→
+   536→export function DashboardView() {
+   537→  const setView = useUiStore((s) => s.setView);
+   538→  const setQuickAddOpen = useUiStore((s) => s.setQuickAddOpen);
+   539→  const queryClient = useQueryClient();
+   540→
+   541→  const { data, isLoading, isError, refetch } = useQuery({
+   542→    queryKey: ["stats", "dashboard"],
+   543→    queryFn: statsApi.dashboard,
+   544→  });
+   545→
+   546→  const weekDays = React.useMemo(() => lastNDays(7), []);
+   547→
+   548→  // Toggle a focus todo with an optimistic update so the check feels instant.
+   549→  const toggleTodo = useMutation({
+   550→    mutationFn: (todo: Todo) =>
+   551→      todosApi.update(todo.id, { completed: !todo.completed }),
+   552→    onMutate: async (todo) => {
+   553→      await queryClient.cancelQueries({ queryKey: ["stats", "dashboard"] });
+   554→      const prev = queryClient.getQueryData<DashboardStats>([
+   555→        "stats",
+   556→        "dashboard",
+   557→      ]);
+   558→      if (prev) {
+   559→        queryClient.setQueryData<DashboardStats>(["stats", "dashboard"], {
+   560→          ...prev,
+   561→          upcomingTodos: prev.upcomingTodos.map((t) =>
+   562→            t.id === todo.id
+   563→              ? {
+   564→                  ...t,
+   565→                  completed: !t.completed,
+   566→                  completedAt: !t.completed
+   567→                    ? new Date().toISOString()
+   568→                    : null,
+   569→                }
+   570→              : t
+   571→          ),
+   572→        });
+   573→      }
+   574→      return { prev };
+   575→    },
+   576→    onError: (err, _todo, ctx) => {
+   577→      if (ctx?.prev) {
+   578→        queryClient.setQueryData(["stats", "dashboard"], ctx.prev);
+   579→      }
+   580→      toast.error(
+   581→        err instanceof Error ? err.message : "Couldn't update the task"
+   582→      );
+   583→    },
+   584→    onSettled: () => {
+   585→      void queryClient.invalidateQueries({ queryKey: ["stats"] });
+   586→      void queryClient.invalidateQueries({ queryKey: ["todos"] });
+   587→    },
+   588→  });
+   589→
+   590→  // Toggle a habit for today, optimistically flipping the chip + week dots.
+   591→  const toggleHabit = useMutation({
+   592→    mutationFn: (habit: Habit) => habitsApi.toggle(habit.id, todayKey()),
+   593→    onMutate: async (habit) => {
+   594→      await queryClient.cancelQueries({ queryKey: ["stats", "dashboard"] });
+   595→      const prev = queryClient.getQueryData<DashboardStats>([
+   596→        "stats",
+   597→        "dashboard",
+   598→      ]);
+   599→      const today = todayKey();
+   600→      if (prev) {
+   601→        queryClient.setQueryData<DashboardStats>(["stats", "dashboard"], {
+   602→          ...prev,
+   603→          todayHabits: prev.todayHabits.map((h) => {
+   604→            if (h.id !== habit.id) return h;
+   605→            const done = !h.doneToday;
+   606→            const logs = done
+   607→              ? [...h.logs, { id: `tmp-${h.id}`, habitId: h.id, date: today }]
+   608→              : h.logs.filter((l) => l.date !== today);
+   609→            return { ...h, doneToday: done, logs };
+   610→          }),
+   611→        });
+   612→      }
+   613→      return { prev };
+   614→    },
+   615→    onError: (err, _habit, ctx) => {
+   616→      if (ctx?.prev) {
+   617→        queryClient.setQueryData(["stats", "dashboard"], ctx.prev);
+   618→      }
+   619→      toast.error(
+   620→        err instanceof Error ? err.message : "Couldn't toggle the habit"
+   621→      );
+   622→    },
+   623→    onSettled: () => {
+   624→      void queryClient.invalidateQueries({ queryKey: ["stats"] });
+   625→      void queryClient.invalidateQueries({ queryKey: ["habits"] });
+   626→    },
+   627→  });
+   628→
+   629→  // Onboarding: create three starter habits in one go.
+   630→  const addStarterHabits = useMutation({
+   631→    mutationFn: async () => {
+   632→      await habitsApi.create({
+   633→        name: "Drink 8 glasses of water",
+   634→        emoji: "💧",
+   635→        color: "teal",
+   636→        timeOfDay: "anytime",
+   637→      });
+   638→      await habitsApi.create({
+   639→        name: "Read 20 minutes",
+   640→        emoji: "📚",
+   641→        color: "amber",
+   642→        timeOfDay: "evening",
+   643→      });
+   644→      await habitsApi.create({
+   645→        name: "Move your body",
+   646→        emoji: "🏃",
+   647→        color: "rose",
+   648→        timeOfDay: "morning",
+   649→      });
+   650→    },
+   651→    onSuccess: () => {
+   652→      toast.success("Starter habits added", {
+   653→        description: "Find them under Routine and check them off daily.",
+   654→      });
+   655→      void queryClient.invalidateQueries({ queryKey: ["stats"] });
+   656→      void queryClient.invalidateQueries({ queryKey: ["habits"] });
+   657→    },
+   658→    onError: (err) =>
+   659→      toast.error(
+   660→        err instanceof Error ? err.message : "Couldn't add starter habits"
+   661→      ),
+   662→  });
+   663→
+   664→  if (isLoading) return <DashboardSkeleton />;
+   665→  if (isError || !data) {
+   666→    return <DashboardError onRetry={() => void refetch()} />;
+   667→  }
+   668→
+   669→  const { today, week, activeGoals, upcomingTodos, todayHabits, recentJournal, quote } =
+   670→    data;
+   671→  const isEmpty =
+   672→    today.todosTotal === 0 &&
+   673→    today.habitsTotal === 0 &&
+   674→    activeGoals.length === 0 &&
+   675→    today.routineTotal === 0;
+   676→
+   677→  if (isEmpty) {
+   678→    return (
+   679→      <div className="space-y-6">
+   680→        <FadeIn>
+   681→          <DashboardHeader score={today.score} />
+   682→        </FadeIn>
+   683→        <FadeIn delay={0.05}>
+   684→          <OnboardingCard
+   685→            habitsPending={addStarterHabits.isPending}
+   686→            onAddTask={() => setQuickAddOpen(true)}
+   687→            onAddHabits={() => addStarterHabits.mutate()}
+   688→            onSetGoal={() => setView("goals")}
+   689→          />
+   690→        </FadeIn>
+   691→        <FadeIn delay={0.1}>
+   692→          <QuoteCard quote={quote} />
+   693→        </FadeIn>
+   694→      </div>
+   695→    );
+   696→  }
+   697→
+   698→  return (
+   699→    <div className="space-y-6">
+   700→      <FadeIn>
+   701→        <DashboardHeader score={today.score} />
+   702→      </FadeIn>
+   703→
+   704→      <FadeIn delay={0.04}>
+   705→        <section aria-label="Quote of the day">
+   706→          <QuoteCard quote={quote} />
+   707→        </section>
+   708→      </FadeIn>
+   709→
+   710→      <FadeIn delay={0.08}>
+   711→        <StatCards today={today} />
+   712→      </FadeIn>
+   713→
+   714→      <FadeIn delay={0.12}>
+   715→        <WeekCard week={week} />
+   716→      </FadeIn>
+   717→
+   718→      {today.overdueCount > 0 && (
+   719→        <FadeIn delay={0.14}>
+   720→          <OverdueBanner
+   721→            count={today.overdueCount}
+   722→            onReview={() => setView("tasks")}
+   723→          />
+   724→        </FadeIn>
+   725→      )}
+   726→
+   727→      <FadeIn delay={0.16}>
+   728→        <section aria-label="Today's focus">
+   729→          <SectionHeading
+   730→            title="Today's focus"
+   731→            action={<SeeAllButton onClick={() => setView("tasks")} />}
+   732→          />
+   733→          {upcomingTodos.length === 0 ? (
+   734→            <p className="rounded-2xl border border-dashed bg-muted/30 px-4 py-6 text-center text-sm text-balance text-muted-foreground">
+   735→              Nothing due in the next week — enjoy the breathing room.
+   736→            </p>
+   737→          ) : (
+   738→            <div className="divide-y divide-border/70 rounded-2xl border bg-card shadow-card">
+   739→              {upcomingTodos.slice(0, 6).map((todo) => (
+   740→                <FocusRow
+   741→                  key={todo.id}
+   742→                  todo={todo}
+   743→                  onToggle={(t) => toggleTodo.mutate(t)}
+   744→                />
+   745→              ))}
+   746→            </div>
+   747→          )}
+   748→        </section>
+   749→      </FadeIn>
+   750→
+   751→      <FadeIn delay={0.2}>
+   752→        <section aria-label="Habits today">
+   753→          <SectionHeading
+   754→            title="Habits today"
+   755→            action={<SeeAllButton onClick={() => setView("routine")} />}
+   756→          />
+   757→          {todayHabits.length === 0 ? (
+   758→            <p className="rounded-2xl border border-dashed bg-muted/30 px-4 py-6 text-center text-sm text-balance text-muted-foreground">
+   759→              No habits yet — build momentum with one small daily win.
+   760→            </p>
+   761→          ) : (
+   762→            <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-2 no-scrollbar">
+   763→              {todayHabits.map((habit) => (
+   764→                <HabitChip
+   765→                  key={habit.id}
+   766→                  habit={habit}
+   767→                  weekDays={weekDays}
+   768→                  onToggle={(h) => toggleHabit.mutate(h)}
+   769→                />
+   770→              ))}
+   771→            </div>
+   772→          )}
+   773→        </section>
+   774→      </FadeIn>
+   775→
+   776→      <FadeIn delay={0.24}>
+   777→        <section aria-label="Active goals">
+   778→          <SectionHeading
+   779→            title="Active goals"
+   780→            action={<SeeAllButton onClick={() => setView("goals")} />}
+   781→          />
+   782→          {activeGoals.length === 0 ? (
+   783→            <p className="rounded-2xl border border-dashed bg-muted/30 px-4 py-6 text-center text-sm text-balance text-muted-foreground">
+   784→              No active goals — set one to give your days direction.
+   785→            </p>
+   786→          ) : (
+   787→            <div className="grid gap-3 sm:grid-cols-2">
+   788→              {activeGoals.slice(0, 4).map((goal) => {
+   789→                const percent = ratio(goal.progress, goal.target);
+   790→                return (
+   791→                  <button
+   792→                    key={goal.id}
+   793→                    type="button"
+   794→                    onClick={() => setView("goals")}
+   795→                    aria-label={`Open goal: ${goal.title}`}
+   796→                    className="press rounded-2xl border bg-card p-4 text-left shadow-card transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.99]"
+   797→                  >
+   798→                    <div className="flex items-start justify-between gap-2">
+   799→                      <p className="min-w-0 text-sm font-semibold leading-snug line-clamp-1">
+   800→                        {goal.title}
+   801→                      </p>
+   802→                      <Badge
+   803→                        variant="outline"
+   804→                        className="shrink-0 rounded-full px-2 py-0 text-[10px] font-medium capitalize"
+   805→                      >
+   806→                        {goal.period}
+   807→                      </Badge>
+   808→                    </div>
+   809→                    <ProgressBar value={percent} className="mt-3" />
+   810→                    <p className="mt-1.5 text-xs tabular-nums text-muted-foreground">
+   811→                      <span className="font-semibold text-foreground">
+   812→                        {goal.progress}
+   813→                      </span>
+   814→                      /{goal.target}
+   815→                      {goal.unit ? ` ${goal.unit}` : ""} · {percent}%
+   816→                    </p>
+   817→                  </button>
+   818→                );
+   819→              })}
+   820→            </div>
+   821→          )}
+   822→        </section>
+   823→      </FadeIn>
+   824→
+   825→      <FadeIn delay={0.28}>
+   826→        <section aria-label="Recent journal">
+   827→          <SectionHeading
+   828→            title="Recent journal"
+   829→            action={
+   830→              <SeeAllButton
+   831→                label="Open diary"
+   832→                onClick={() => setView("diary")}
+   833→              />
+   834→            }
+   835→          />
+   836→          {recentJournal.length === 0 ? (
+   837→            <p className="rounded-2xl border border-dashed bg-muted/30 px-4 py-6 text-center text-sm text-balance text-muted-foreground">
+   838→              No entries yet — tonight is a good night to write.
+   839→            </p>
+   840→          ) : (
+   841→            <div className="divide-y divide-border/70 rounded-2xl border bg-card shadow-card">
+   842→              {recentJournal.map((entry) => {
+   843→                const mood = MOODS.find((m) => m.value === entry.mood);
+   844→                return (
+   845→                  <button
+   846→                    key={entry.id}
+   847→                    type="button"
+   848→                    onClick={() => setView("diary")}
+   849→                    aria-label={`Open diary entry from ${friendlyDay(entry.date)}`}
+   850→                    className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40"
+   851→                  >
+   852→                    <span
+   853→                      className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-muted text-base"
+   854→                      aria-hidden="true"
+   855→                    >
+   856→                      {mood ? (
+   857→                        mood.emoji
+   858→                      ) : (
+   859→                        <BookOpen className="size-4 text-muted-foreground" />
+   860→                      )}
+   861→                    </span>
+   862→                    <span className="min-w-0 flex-1">
+   863→                      <span className="flex items-baseline justify-between gap-2">
+   864→                        <span className="truncate text-sm font-semibold">
+   865→                          {entry.title || "Journal entry"}
+   866→                        </span>
+   867→                        <span className="shrink-0 text-[11px] text-muted-foreground">
+   868→                          {friendlyDay(entry.date)}
+   869→                        </span>
+   870→                      </span>
+   871→                      <span className="mt-0.5 block line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+   872→                        {entry.content}
+   873→                      </span>
+   874→                    </span>
+   875→                  </button>
+   876→                );
+   877→              })}
+   878→            </div>
+   879→          )}
+   880→        </section>
+   881→      </FadeIn>
+   882→    </div>
+   883→  );
+   884→}
+   885→

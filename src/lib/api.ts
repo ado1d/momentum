@@ -11,6 +11,7 @@ import type {
   GoalInput,
   Habit,
   HabitInput,
+  ImportResult,
   InsightsData,
   JournalEntry,
   JournalEntryInput,
@@ -19,9 +20,12 @@ import type {
   RoutineTask,
   RoutineTaskInput,
   SearchResults,
+  Subtask,
+  SubtaskInput,
   Todo,
   TodoInput,
   ToggleResult,
+  WeeklyReview,
 } from "./types";
 
 export class ApiError extends Error {
@@ -81,6 +85,16 @@ export const todosApi = {
     patch<Todo>(`/api/todos/${id}`, patchBody),
   remove: (id: string) => del<{ ok: boolean }>(`/api/todos/${id}`),
   clearCompleted: () => post<{ ok: boolean }>("/api/todos/clear-completed"),
+};
+
+// ── Subtasks (checklists inside a task) ─────────────────────
+export const subtasksApi = {
+  list: (todoId: string) => get<Subtask[]>(`/api/todos/${todoId}/subtasks`),
+  create: (todoId: string, input: SubtaskInput) =>
+    post<Subtask>(`/api/todos/${todoId}/subtasks`, input),
+  update: (id: string, patchBody: { title?: string; completed?: boolean }) =>
+    patch<Subtask>(`/api/subtasks/${id}`, patchBody),
+  remove: (id: string) => del<{ ok: boolean }>(`/api/subtasks/${id}`),
 };
 
 // ── Habits ───────────────────────────────────────────────────
@@ -151,6 +165,20 @@ export const goalsApi = {
 export const statsApi = {
   dashboard: () => get<DashboardStats>("/api/stats"),
   insights: () => get<InsightsData>("/api/insights"),
+};
+
+// ── Weekly review (generated summary) ──────────────────────
+export const reviewApi = {
+  get: (week?: string) => {
+    const qs = week ? `?week=${encodeURIComponent(week)}` : "";
+    return get<WeeklyReview>(`/api/review${qs}`);
+  },
+};
+
+// ── Backup import ───────────────────────────────────────────
+export const importApi = {
+  restore: (data: unknown, mode: "merge" | "replace") =>
+    post<ImportResult>("/api/import", { mode, data }),
 };
 
 // ── Global search (command palette) ──────────────────────────

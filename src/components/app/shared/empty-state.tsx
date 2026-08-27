@@ -33,10 +33,10 @@ export function EmptyState({
         className
       )}
     >
-      <div className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-        <Icon className="size-7" aria-hidden="true" />
+      <div className="flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500/15 to-teal-500/5 text-primary ring-1 ring-primary/10 dark:from-emerald-500/20 dark:to-teal-500/10">
+        <Icon className="size-8" aria-hidden="true" />
       </div>
-      <h3 className="mt-4 text-base font-semibold">{title}</h3>
+      <h3 className="mt-5 text-base font-semibold">{title}</h3>
       <p className="mt-1.5 max-w-sm text-sm text-muted-foreground text-balance">
         {description}
       </p>

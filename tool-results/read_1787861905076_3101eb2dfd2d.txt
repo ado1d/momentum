@@ -1,0 +1,1192 @@
+     1→"use client";
+     2→
+     3→import * as React from "react";
+     4→import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+     5→import {
+     6→  Bell,
+     7→  CalendarCheck,
+     8→  CalendarClock,
+     9→  CalendarDays,
+    10→  Check,
+    11→  CheckCircle2,
+    12→  ChevronDown,
+    13→  Clock,
+    14→  CloudOff,
+    15→  FileText,
+    16→  ListTodo,
+    17→  Loader2,
+    18→  MoreVertical,
+    19→  Pencil,
+    20→  Plus,
+    21→  Repeat,
+    22→  Trash2,
+    23→  type LucideIcon,
+    24→} from "lucide-react";
+    25→import { toast } from "sonner";
+    26→import { todosApi } from "@/lib/api";
+    27→import {
+    28→  addDaysToKey,
+    29→  dateToKey,
+    30→  formatDueLabel,
+    31→  hasTime,
+    32→  isOverdue,
+    33→  todayKey,
+    34→} from "@/lib/dates";
+    35→import {
+    36→  PRIORITIES,
+    37→  REPEAT_OPTIONS,
+    38→  TODO_CATEGORIES,
+    39→  type Priority,
+    40→  type RepeatKind,
+    41→  type Todo,
+    42→  type TodoInput,
+    43→} from "@/lib/types";
+    44→import {
+    45→  AlertDialog,
+    46→  AlertDialogAction,
+    47→  AlertDialogCancel,
+    48→  AlertDialogContent,
+    49→  AlertDialogDescription,
+    50→  AlertDialogFooter,
+    51→  AlertDialogHeader,
+    52→  AlertDialogTitle,
+    53→} from "@/components/ui/alert-dialog";
+    54→import { Button } from "@/components/ui/button";
+    55→import {
+    56→  Dialog,
+    57→  DialogContent,
+    58→  DialogDescription,
+    59→  DialogFooter,
+    60→  DialogHeader,
+    61→  DialogTitle,
+    62→} from "@/components/ui/dialog";
+    63→import {
+    64→  DropdownMenu,
+    65→  DropdownMenuContent,
+    66→  DropdownMenuItem,
+    67→  DropdownMenuTrigger,
+    68→} from "@/components/ui/dropdown-menu";
+    69→import { Input } from "@/components/ui/input";
+    70→import {
+    71→  Select,
+    72→  SelectContent,
+    73→  SelectItem,
+    74→  SelectTrigger,
+    75→  SelectValue,
+    76→} from "@/components/ui/select";
+    77→import { Skeleton } from "@/components/ui/skeleton";
+    78→import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    79→import { Textarea } from "@/components/ui/textarea";
+    80→import {
+    81→  CategoryBadge,
+    82→  PriorityBadge,
+    83→  RepeatBadge,
+    84→  repeatOptionLabel,
+    85→} from "@/components/app/shared/badges";
+    86→import { EmptyState } from "@/components/app/shared/empty-state";
+    87→import { ViewHeader } from "@/components/app/shared/view-header";
+    88→import { cn } from "@/lib/utils";
+    89→
+    90→type TabValue = "all" | "today" | "upcoming" | "overdue" | "completed";
+    91→type DueChoice = "none" | "today" | "tomorrow";
+    92→
+    93→const TABS: { value: TabValue; label: string }[] = [
+    94→  { value: "all", label: "All" },
+    95→  { value: "today", label: "Today" },
+    96→  { value: "upcoming", label: "Upcoming" },
+    97→  { value: "overdue", label: "Overdue" },
+    98→  { value: "completed", label: "Completed" },
+    99→];
+   100→
+   101→const PRIORITY_CYCLE: Priority[] = ["low", "medium", "high", "urgent"];
+   102→const DUE_CYCLE: DueChoice[] = ["none", "today", "tomorrow"];
+   103→const REPEAT_CYCLE: RepeatKind[] = ["none", "daily", "weekdays", "weekly", "monthly"];
+   104→
+   105→/** Toast copy for completing a recurring todo, e.g. "Repeats daily — next occurrence created." */
+   106→function repeatCompletionDescription(repeat: RepeatKind): string {
+   107→  const option = REPEAT_OPTIONS.find((o) => o.value === repeat);
+   108→  const label = (option?.label ?? repeat).toLowerCase();
+   109→  return `Repeats ${label} — next occurrence created.`;
+   110→}
+   111→
+   112→const priorityChipStyles: Record<Priority, string> = {
+   113→  low: "border-border bg-muted/50 text-muted-foreground",
+   114→  medium:
+   115→    "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+   116→  high: "border-orange-500/40 bg-orange-500/10 text-orange-700 dark:text-orange-300",
+   117→  urgent: "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300",
+   118→};
+   119→
+   120→const EMPTY_BY_TAB: Record<
+   121→  TabValue,
+   122→  { icon: LucideIcon; title: string; description: string }
+   123→> = {
+   124→  all: {
+   125→    icon: ListTodo,
+   126→    title: "No tasks yet",
+   127→    description: "Capture what's on your mind — small steps count double.",
+   128→  },
+   129→  today: {
+   130→    icon: CalendarCheck,
+   131→    title: "Nothing due today",
+   132→    description: "Your slate is clear. Add a task for today or plan ahead.",
+   133→  },
+   134→  upcoming: {
+   135→    icon: CalendarClock,
+   136→    title: "Nothing upcoming",
+   137→    description: "No tasks scheduled for the days ahead. Enjoy the calm.",
+   138→  },
+   139→  overdue: {
+   140→    icon: CheckCircle2,
+   141→    title: "Nothing overdue",
+   142→    description: "You're all caught up — great job staying on top of things.",
+   143→  },
+   144→  completed: {
+   145→    icon: CheckCircle2,
+   146→    title: "Nothing completed yet",
+   147→    description: "Check off your first task and it will show up here.",
+   148→  },
+   149→};
+   150→
+   151→/** Local calendar-day key of a due/completed ISO timestamp (null when unset). */
+   152→function isoDayKey(iso: string | null): string | null {
+   153→  if (!iso) return null;
+   154→  const d = new Date(iso);
+   155→  return Number.isNaN(d.getTime()) ? null : dateToKey(d);
+   156→}
+   157→
+   158→function dueDayKey(todo: Todo): string | null {
+   159→  return isoDayKey(todo.dueDate);
+   160→}
+   161→
+   162→/** Turn a local day key (+ optional "HH:MM") into a real ISO instant. */
+   163→function localDateKeyToIso(key: string, time = "00:00"): string {
+   164→  const [y, mo, d] = key.split("-").map(Number);
+   165→  const [h, mi] = time.split(":").map(Number);
+   166→  return new Date(y, (mo ?? 1) - 1, d ?? 1, h ?? 0, mi ?? 0).toISOString();
+   167→}
+   168→
+   169→function toTimeInputValue(d: Date): string {
+   170→  const pad = (n: number) => String(n).padStart(2, "0");
+   171→  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+   172→}
+   173→
+   174→/** ISO instant -> "YYYY-MM-DDTHH:MM" (local) for datetime-local inputs. */
+   175→function isoToLocalInputValue(iso: string): string {
+   176→  const d = new Date(iso);
+   177→  if (Number.isNaN(d.getTime())) return "";
+   178→  const pad = (n: number) => String(n).padStart(2, "0");
+   179→  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+   180→}
+   181→
+   182→function matchesTab(todo: Todo, tab: TabValue, today: string): boolean {
+   183→  const key = dueDayKey(todo);
+   184→  switch (tab) {
+   185→    case "all":
+   186→      return true;
+   187→    case "today":
+   188→      return todo.completed
+   189→        ? isoDayKey(todo.completedAt) === today
+   190→        : key === today;
+   191→    case "upcoming":
+   192→      return !todo.completed && !!key && key > today;
+   193→    case "overdue":
+   194→      return !todo.completed && !!key && key < today;
+   195→    case "completed":
+   196→      return todo.completed;
+   197→  }
+   198→}
+   199→
+   200→function TasksSkeleton() {
+   201→  return (
+   202→    <div className="space-y-3" aria-busy="true" aria-label="Loading tasks">
+   203→      <Skeleton className="h-24 rounded-2xl" />
+   204→      <Skeleton className="h-10 w-full rounded-xl" />
+   205→      <Skeleton className="h-8 w-64 rounded-full" />
+   206→      <Skeleton className="h-72 rounded-2xl" />
+   207→    </div>
+   208→  );
+   209→}
+   210→
+   211→function CategoryChip({
+   212→  label,
+   213→  active,
+   214→  onClick,
+   215→}: {
+   216→  label: string;
+   217→  active: boolean;
+   218→  onClick: () => void;
+   219→}) {
+   220→  return (
+   221→    <button
+   222→      type="button"
+   223→      onClick={onClick}
+   224→      aria-pressed={active}
+   225→      className={cn(
+   226→        "h-8 shrink-0 rounded-full border px-3 text-xs font-medium transition-colors",
+   227→        active
+   228→          ? "border-primary bg-primary text-primary-foreground shadow-sm"
+   229→          : "border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
+   230→      )}
+   231→    >
+   232→      {label}
+   233→    </button>
+   234→  );
+   235→}
+   236→
+   237→function GroupLabel({
+   238→  label,
+   239→  count,
+   240→  danger,
+   241→}: {
+   242→  label: string;
+   243→  count: number;
+   244→  danger?: boolean;
+   245→}) {
+   246→  return (
+   247→    <div
+   248→      className={cn(
+   249→        "sticky top-16 z-10 flex items-center justify-between gap-2 border-b px-3 py-1 backdrop-blur sm:px-4 lg:top-0",
+   250→        danger
+   251→          ? "border-destructive/20 bg-destructive/[0.06]"
+   252→          : "border-border/70 bg-card/95"
+   253→      )}
+   254→    >
+   255→      <h3
+   256→        className={cn(
+   257→          "py-0.5 text-xs font-semibold uppercase tracking-wider",
+   258→          danger ? "text-destructive" : "text-muted-foreground"
+   259→        )}
+   260→      >
+   261→        {label}
+   262→      </h3>
+   263→      <span className="text-xs font-medium tabular-nums text-muted-foreground/70">
+   264→        {count}
+   265→      </span>
+   266→    </div>
+   267→  );
+   268→}
+   269→
+   270→function TodoRow({
+   271→  todo,
+   272→  onToggle,
+   273→  onEdit,
+   274→  onDelete,
+   275→}: {
+   276→  todo: Todo;
+   277→  onToggle: (todo: Todo) => void;
+   278→  onEdit: (todo: Todo) => void;
+   279→  onDelete: (todo: Todo) => void;
+   280→}) {
+   281→  const today = todayKey();
+   282→  const key = dueDayKey(todo);
+   283→  const overdue = !todo.completed && !!key && key < today;
+   284→  const dueToday = !todo.completed && key === today;
+   285→
+   286→  return (
+   287→    <div
+   288→      className={cn(
+   289→        "flex items-start gap-2.5 px-3 py-2.5 sm:gap-3 sm:px-4 sm:py-3",
+   290→        overdue && "bg-destructive/[0.03]"
+   291→      )}
+   292→    >
+   293→      <button
+   294→        type="button"
+   295→        role="checkbox"
+   296→        aria-checked={todo.completed}
+   297→        aria-label={`${todo.completed ? "Mark" : "Complete"} "${todo.title}"`}
+   298→        onClick={() => onToggle(todo)}
+   299→        className={cn(
+   300→          "relative mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200 active:scale-75",
+   301→          todo.completed
+   302→            ? "border-primary bg-primary text-primary-foreground shadow-sm"
+   303→            : "border-muted-foreground/30 hover:border-primary/60 hover:bg-primary/10"
+   304→        )}
+   305→      >
+   306→        <Check
+   307→          className={cn(
+   308→            "size-3.5 transition-all duration-200",
+   309→            todo.completed ? "scale-100 opacity-100" : "scale-50 opacity-0"
+   310→          )}
+   311→          strokeWidth={3}
+   312→          aria-hidden="true"
+   313→        />
+   314→        <span className="absolute -inset-2.5" aria-hidden="true" />
+   315→      </button>
+   316→
+   317→      <div className="min-w-0 flex-1">
+   318→        <p
+   319→          className={cn(
+   320→            "break-words text-sm font-medium leading-snug decoration-2 transition-colors duration-300",
+   321→            "line-through",
+   322→            todo.completed
+   323→              ? "text-muted-foreground/70 decoration-muted-foreground/50"
+   324→              : "text-foreground decoration-transparent"
+   325→          )}
+   326→        >
+   327→          {todo.title}
+   328→        </p>
+   329→        {todo.notes && (
+   330→          <p className="mt-0.5 flex items-start gap-1 text-xs leading-snug text-muted-foreground/80">
+   331→            <FileText className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
+   332→            <span className="line-clamp-1">{todo.notes}</span>
+   333→          </p>
+   334→        )}
+   335→        <div
+   336→          className={cn(
+   337→            "mt-1.5 flex flex-wrap items-center gap-1.5",
+   338→            todo.completed && "opacity-60"
+   339→          )}
+   340→        >
+   341→          <PriorityBadge priority={todo.priority} />
+   342→          <CategoryBadge category={todo.category} />
+   343→          {todo.dueDate && (
+   344→            <span
+   345→              className={cn(
+   346→                "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium tabular-nums",
+   347→                overdue
+   348→                  ? "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300"
+   349→                  : dueToday
+   350→                    ? "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+   351→                    : "border-border bg-muted/50 text-muted-foreground"
+   352→              )}
+   353→            >
+   354→              <Clock className="size-3" aria-hidden="true" />
+   355→              {formatDueLabel(todo.dueDate)}
+   356→            </span>
+   357→          )}
+   358→          {todo.repeat !== "none" && <RepeatBadge repeat={todo.repeat} />}
+   359→          {todo.reminderAt && (
+   360→            <span
+   361→              className="inline-flex items-center gap-1 text-muted-foreground/70"
+   362→              title={`Reminder: ${formatDueLabel(todo.reminderAt)}`}
+   363→            >
+   364→              <Bell className="size-3" aria-hidden="true" />
+   365→              <span className="sr-only">Reminder set</span>
+   366→            </span>
+   367→          )}
+   368→        </div>
+   369→      </div>
+   370→
+   371→      <DropdownMenu>
+   372→        <DropdownMenuTrigger asChild>
+   373→          <Button
+   374→            variant="ghost"
+   375→            size="icon"
+   376→            aria-label={`Actions for ${todo.title}`}
+   377→            className="-my-2 size-11 shrink-0 rounded-xl text-muted-foreground hover:text-foreground sm:-mr-2"
+   378→          >
+   379→            <MoreVertical className="size-4" aria-hidden="true" />
+   380→          </Button>
+   381→        </DropdownMenuTrigger>
+   382→        <DropdownMenuContent align="end" className="w-40">
+   383→          <DropdownMenuItem onSelect={() => onEdit(todo)}>
+   384→            <Pencil className="size-4" aria-hidden="true" />
+   385→            Edit
+   386→          </DropdownMenuItem>
+   387→          <DropdownMenuItem
+   388→            variant="destructive"
+   389→            onSelect={() => onDelete(todo)}
+   390→          >
+   391→            <Trash2 className="size-4" aria-hidden="true" />
+   392→            Delete
+   393→          </DropdownMenuItem>
+   394→        </DropdownMenuContent>
+   395→      </DropdownMenu>
+   396→    </div>
+   397→  );
+   398→}
+   399→
+   400→function EditTaskDialog({
+   401→  todo,
+   402→  saving,
+   403→  onCancel,
+   404→  onSave,
+   405→}: {
+   406→  todo: Todo;
+   407→  saving: boolean;
+   408→  onCancel: () => void;
+   409→  onSave: (patch: Partial<TodoInput>) => void;
+   410→}) {
+   411→  const [title, setTitle] = React.useState(todo.title);
+   412→  const [notes, setNotes] = React.useState(todo.notes ?? "");
+   413→  const [priority, setPriority] = React.useState<Priority>(todo.priority);
+   414→  const [category, setCategory] = React.useState(todo.category);
+   415→  const [repeat, setRepeat] = React.useState<RepeatKind>(todo.repeat);
+   416→  const [dueDate, setDueDate] = React.useState(() => {
+   417→    if (!todo.dueDate) return "";
+   418→    const d = new Date(todo.dueDate);
+   419→    return Number.isNaN(d.getTime()) ? "" : dateToKey(d);
+   420→  });
+   421→  const [dueTime, setDueTime] = React.useState(() => {
+   422→    if (!todo.dueDate || !hasTime(todo.dueDate)) return "";
+   423→    const d = new Date(todo.dueDate);
+   424→    return Number.isNaN(d.getTime()) ? "" : toTimeInputValue(d);
+   425→  });
+   426→  const [reminder, setReminder] = React.useState(() =>
+   427→    todo.reminderAt ? isoToLocalInputValue(todo.reminderAt) : ""
+   428→  );
+   429→
+   430→  const save = () => {
+   431→    const trimmed = title.trim();
+   432→    if (!trimmed) {
+   433→      toast.error("Give the task a title");
+   434→      return;
+   435→    }
+   436→    const dueIso = dueDate
+   437→      ? localDateKeyToIso(dueDate, dueTime || "00:00")
+   438→      : null;
+   439→    const reminderIso = reminder ? new Date(reminder).toISOString() : null;
+   440→    onSave({
+   441→      title: trimmed,
+   442→      notes: notes.trim() || null,
+   443→      priority,
+   444→      category,
+   445→      dueDate: dueIso,
+   446→      reminderAt: reminderIso,
+   447→      repeat,
+   448→    });
+   449→  };
+   450→
+   451→  const labelClass = "text-xs font-medium text-muted-foreground";
+   452→
+   453→  return (
+   454→    <Dialog
+   455→      open
+   456→      onOpenChange={(open) => {
+   457→        if (!open) onCancel();
+   458→      }}
+   459→    >
+   460→      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+   461→        <DialogHeader>
+   462→          <DialogTitle>Edit task</DialogTitle>
+   463→          <DialogDescription>
+   464→            Update the details of your task.
+   465→          </DialogDescription>
+   466→        </DialogHeader>
+   467→
+   468→        <div className="space-y-4">
+   469→          <div className="space-y-1.5">
+   470→            <label htmlFor="edit-title" className={labelClass}>
+   471→              Title
+   472→            </label>
+   473→            <Input
+   474→              id="edit-title"
+   475→              value={title}
+   476→              autoFocus
+   477→              onChange={(e) => setTitle(e.target.value)}
+   478→            />
+   479→          </div>
+   480→
+   481→          <div className="space-y-1.5">
+   482→            <label htmlFor="edit-notes" className={labelClass}>
+   483→              Notes
+   484→            </label>
+   485→            <Textarea
+   486→              id="edit-notes"
+   487→              rows={3}
+   488→              placeholder="Add notes (optional)"
+   489→              value={notes}
+   490→              onChange={(e) => setNotes(e.target.value)}
+   491→            />
+   492→          </div>
+   493→
+   494→          <div className="grid grid-cols-2 gap-3">
+   495→            <div className="space-y-1.5">
+   496→              <label htmlFor="edit-priority" className={labelClass}>
+   497→                Priority
+   498→              </label>
+   499→              <Select
+   500→                value={priority}
+   501→                onValueChange={(v) => setPriority(v as Priority)}
+   502→              >
+   503→                <SelectTrigger id="edit-priority" className="w-full">
+   504→                  <SelectValue />
+   505→                </SelectTrigger>
+   506→                <SelectContent>
+   507→                  {PRIORITIES.map((p) => (
+   508→                    <SelectItem key={p.value} value={p.value}>
+   509→                      {p.label}
+   510→                    </SelectItem>
+   511→                  ))}
+   512→                </SelectContent>
+   513→              </Select>
+   514→            </div>
+   515→            <div className="space-y-1.5">
+   516→              <label htmlFor="edit-category" className={labelClass}>
+   517→                Category
+   518→              </label>
+   519→              <Select value={category} onValueChange={setCategory}>
+   520→                <SelectTrigger id="edit-category" className="w-full">
+   521→                  <SelectValue />
+   522→                </SelectTrigger>
+   523→                <SelectContent>
+   524→                  {TODO_CATEGORIES.map((c) => (
+   525→                    <SelectItem key={c.value} value={c.value}>
+   526→                      {c.emoji} {c.label}
+   527→                    </SelectItem>
+   528→                  ))}
+   529→                </SelectContent>
+   530→              </Select>
+   531→            </div>
+   532→          </div>
+   533→
+   534→          <div className="grid grid-cols-2 gap-3">
+   535→            <div className="space-y-1.5">
+   536→              <label htmlFor="edit-due-date" className={labelClass}>
+   537→                Due date
+   538→              </label>
+   539→              <Input
+   540→                id="edit-due-date"
+   541→                type="date"
+   542→                value={dueDate}
+   543→                onChange={(e) => setDueDate(e.target.value)}
+   544→              />
+   545→            </div>
+   546→            <div className="space-y-1.5">
+   547→              <label htmlFor="edit-due-time" className={labelClass}>
+   548→                Time (optional)
+   549→              </label>
+   550→              <Input
+   551→                id="edit-due-time"
+   552→                type="time"
+   553→                value={dueTime}
+   554→                onChange={(e) => setDueTime(e.target.value)}
+   555→              />
+   556→            </div>
+   557→          </div>
+   558→
+   559→          <div className="space-y-1.5">
+   560→            <label htmlFor="edit-repeat" className={labelClass}>
+   561→              Repeat
+   562→            </label>
+   563→            <Select
+   564→              value={repeat}
+   565→              onValueChange={(v) => setRepeat(v as RepeatKind)}
+   566→            >
+   567→              <SelectTrigger id="edit-repeat" className="w-full">
+   568→                <SelectValue />
+   569→              </SelectTrigger>
+   570→              <SelectContent>
+   571→                {REPEAT_OPTIONS.map((r) => (
+   572→                  <SelectItem key={r.value} value={r.value}>
+   573→                    {repeatOptionLabel(r.value)}
+   574→                  </SelectItem>
+   575→                ))}
+   576→              </SelectContent>
+   577→            </Select>
+   578→            <p className="text-[11px] text-muted-foreground/70">
+   579→              {REPEAT_OPTIONS.find((r) => r.value === repeat)?.hint ?? ""}
+   580→              {repeat !== "none" &&
+   581→                " — a fresh copy appears when you complete this task."}
+   582→            </p>
+   583→          </div>
+   584→
+   585→          <div className="space-y-1.5">
+   586→            <label htmlFor="edit-reminder" className={labelClass}>
+   587→              Reminder
+   588→            </label>
+   589→            <Input
+   590→              id="edit-reminder"
+   591→              type="datetime-local"
+   592→              value={reminder}
+   593→              onChange={(e) => setReminder(e.target.value)}
+   594→            />
+   595→            <p className="text-[11px] text-muted-foreground/70">
+   596→              Clear the fields to remove the due date or reminder.
+   597→            </p>
+   598→          </div>
+   599→        </div>
+   600→
+   601→        <DialogFooter>
+   602→          <Button variant="outline" onClick={onCancel}>
+   603→            Cancel
+   604→          </Button>
+   605→          <Button onClick={save} disabled={saving}>
+   606→            {saving && (
+   607→              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+   608→            )}
+   609→            Save changes
+   610→          </Button>
+   611→        </DialogFooter>
+   612→      </DialogContent>
+   613→    </Dialog>
+   614→  );
+   615→}
+   616→
+   617→export function TasksView() {
+   618→  const queryClient = useQueryClient();
+   619→  const quickAddRef = React.useRef<HTMLInputElement>(null);
+   620→
+   621→  // Full list (active + completed) fetched once; filtering happens client-side.
+   622→  // Note: api.ts strips status "all" (no param), and the backend then defaults
+   623→  // to active-only — so we explicitly fetch both halves and merge them.
+   624→  // Key is ["todos", "full"] because ["todos", "all"] is owned by the
+   625→  // notification engine / bell menu (status "active").
+   626→  const { data: todos = [], isLoading, isError, refetch } = useQuery({
+   627→    queryKey: ["todos", "full"],
+   628→    queryFn: async () => {
+   629→      const [active, completed] = await Promise.all([
+   630→        todosApi.list({ status: "active" }),
+   631→        todosApi.list({ status: "completed" }),
+   632→      ]);
+   633→      return [...active, ...completed];
+   634→    },
+   635→  });
+   636→
+   637→  const [tab, setTab] = React.useState<TabValue>("all");
+   638→  const [category, setCategory] = React.useState<string>("all");
+   639→  const [quickTitle, setQuickTitle] = React.useState("");
+   640→  const [quickPriority, setQuickPriority] = React.useState<Priority>("medium");
+   641→  const [quickDue, setQuickDue] = React.useState<DueChoice>("today");
+   642→  const [quickRepeat, setQuickRepeat] = React.useState<RepeatKind>("none");
+   643→  const [editing, setEditing] = React.useState<Todo | null>(null);
+   644→  const [deleting, setDeleting] = React.useState<Todo | null>(null);
+   645→  const [clearOpen, setClearOpen] = React.useState(false);
+   646→  const [completedOpen, setCompletedOpen] = React.useState(false);
+   647→
+   648→  const invalidate = React.useCallback(() => {
+   649→    void queryClient.invalidateQueries({ queryKey: ["todos"] });
+   650→    void queryClient.invalidateQueries({ queryKey: ["stats"] });
+   651→  }, [queryClient]);
+   652→
+   653→  const createMutation = useMutation({
+   654→    mutationFn: (input: TodoInput) => todosApi.create(input),
+   655→    onSuccess: () => {
+   656→      invalidate();
+   657→      toast.success("Task added");
+   658→    },
+   659→    onError: (e) =>
+   660→      toast.error(e instanceof Error ? e.message : "Couldn't add the task"),
+   661→  });
+   662→
+   663→  const toggleMutation = useMutation({
+   664→    mutationFn: (todo: Todo) =>
+   665→      todosApi.update(todo.id, { completed: !todo.completed }),
+   666→    onMutate: async (todo) => {
+   667→      await queryClient.cancelQueries({ queryKey: ["todos", "full"] });
+   668→      const prev = queryClient.getQueryData<Todo[]>(["todos", "full"]);
+   669→      if (prev) {
+   670→        queryClient.setQueryData<Todo[]>(
+   671→          ["todos", "full"],
+   672→          prev.map((t) =>
+   673→            t.id === todo.id
+   674→              ? {
+   675→                  ...t,
+   676→                  completed: !t.completed,
+   677→                  completedAt: !todo.completed
+   678→                    ? new Date().toISOString()
+   679→                    : null,
+   680→                }
+   681→              : t
+   682→          )
+   683→        );
+   684→      }
+   685→      return { prev };
+   686→    },
+   687→    onSuccess: (_updated, todo) => {
+   688→      // Completing a recurring todo spawns the next occurrence server-side.
+   689→      if (!todo.completed && todo.repeat !== "none") {
+   690→        toast.success("Task completed", {
+   691→          description: repeatCompletionDescription(todo.repeat),
+   692→        });
+   693→      }
+   694→    },
+   695→    onError: (_e, _todo, ctx) => {
+   696→      if (ctx?.prev) {
+   697→        queryClient.setQueryData(["todos", "full"], ctx.prev);
+   698→      }
+   699→      toast.error("Couldn't update the task");
+   700→    },
+   701→    onSettled: invalidate,
+   702→  });
+   703→
+   704→  const updateMutation = useMutation({
+   705→    mutationFn: (args: { id: string; patch: Partial<TodoInput> }) =>
+   706→      todosApi.update(args.id, args.patch),
+   707→    onSuccess: () => {
+   708→      invalidate();
+   709→      setEditing(null);
+   710→      toast.success("Task updated");
+   711→    },
+   712→    onError: (e) =>
+   713→      toast.error(e instanceof Error ? e.message : "Couldn't update the task"),
+   714→  });
+   715→
+   716→  const deleteMutation = useMutation({
+   717→    mutationFn: (id: string) => todosApi.remove(id),
+   718→    onMutate: async (id) => {
+   719→      await queryClient.cancelQueries({ queryKey: ["todos", "full"] });
+   720→      const prev = queryClient.getQueryData<Todo[]>(["todos", "full"]);
+   721→      if (prev) {
+   722→        queryClient.setQueryData<Todo[]>(
+   723→          ["todos", "full"],
+   724→          prev.filter((t) => t.id !== id)
+   725→        );
+   726→      }
+   727→      return { prev };
+   728→    },
+   729→    onError: (_e, _id, ctx) => {
+   730→      if (ctx?.prev) {
+   731→        queryClient.setQueryData(["todos", "full"], ctx.prev);
+   732→      }
+   733→      toast.error("Couldn't delete the task");
+   734→    },
+   735→    onSuccess: () => {
+   736→      invalidate();
+   737→      setDeleting(null);
+   738→      toast.success("Task deleted");
+   739→    },
+   740→  });
+   741→
+   742→  const clearMutation = useMutation({
+   743→    mutationFn: () => todosApi.clearCompleted(),
+   744→    onSuccess: () => {
+   745→      invalidate();
+   746→      setClearOpen(false);
+   747→      toast.success("Completed tasks cleared");
+   748→    },
+   749→    onError: () => toast.error("Couldn't clear completed tasks"),
+   750→  });
+   751→
+   752→  const today = todayKey();
+   753→  const tomorrow = addDaysToKey(today, 1);
+   754→
+   755→  const doneTodayCount = todos.filter(
+   756→    (t) => t.completed && isoDayKey(t.completedAt) === today
+   757→  ).length;
+   758→  const overdueCount = todos.filter(
+   759→    (t) => !t.completed && isOverdue(t.dueDate)
+   760→  ).length;
+   761→  const completedTotal = todos.filter((t) => t.completed).length;
+   762→
+   763→  const filtered = React.useMemo(
+   764→    () =>
+   765→      todos.filter(
+   766→        (t) =>
+   767→          matchesTab(t, tab, today) &&
+   768→          (category === "all" || t.category === category)
+   769→      ),
+   770→    [todos, tab, category, today]
+   771→  );
+   772→
+   773→  const activeTodos = React.useMemo(
+   774→    () => filtered.filter((t) => !t.completed),
+   775→    [filtered]
+   776→  );
+   777→
+   778→  const completedTodos = React.useMemo(
+   779→    () =>
+   780→      filtered
+   781→        .filter((t) => t.completed)
+   782→        .sort((a, b) =>
+   783→          (b.completedAt ?? "").localeCompare(a.completedAt ?? "")
+   784→        ),
+   785→    [filtered]
+   786→  );
+   787→
+   788→  const visibleGroups = React.useMemo(() => {
+   789→    const buckets: Record<
+   790→      "overdue" | "today" | "tomorrow" | "upcoming" | "nodate",
+   791→      Todo[]
+   792→    > = {
+   793→      overdue: [],
+   794→      today: [],
+   795→      tomorrow: [],
+   796→      upcoming: [],
+   797→      nodate: [],
+   798→    };
+   799→    for (const t of activeTodos) {
+   800→      const key = dueDayKey(t);
+   801→      if (key === null) buckets.nodate.push(t);
+   802→      else if (key < today) buckets.overdue.push(t);
+   803→      else if (key === today) buckets.today.push(t);
+   804→      else if (key === tomorrow) buckets.tomorrow.push(t);
+   805→      else buckets.upcoming.push(t);
+   806→    }
+   807→    return [
+   808→      { id: "overdue", label: "Overdue", tone: "danger" as const, items: buckets.overdue },
+   809→      { id: "today", label: "Today", tone: "default" as const, items: buckets.today },
+   810→      { id: "tomorrow", label: "Tomorrow", tone: "default" as const, items: buckets.tomorrow },
+   811→      { id: "upcoming", label: "Upcoming", tone: "default" as const, items: buckets.upcoming },
+   812→      { id: "nodate", label: "No date", tone: "default" as const, items: buckets.nodate },
+   813→    ].filter((g) => g.items.length > 0);
+   814→  }, [activeTodos, today, tomorrow]);
+   815→
+   816→  const submitQuickAdd = () => {
+   817→    const title = quickTitle.trim();
+   818→    if (!title) {
+   819→      quickAddRef.current?.focus();
+   820→      return;
+   821→    }
+   822→    if (createMutation.isPending) return;
+   823→    const dueDate =
+   824→      quickDue === "none"
+   825→        ? null
+   826→        : localDateKeyToIso(quickDue === "today" ? today : tomorrow);
+   827→    createMutation.mutate(
+   828→      { title, priority: quickPriority, dueDate, repeat: quickRepeat },
+   829→      {
+   830→        onSuccess: () => {
+   831→          setQuickTitle("");
+   832→          quickAddRef.current?.focus();
+   833→        },
+   834→      }
+   835→    );
+   836→  };
+   837→
+   838→  const cyclePriority = () =>
+   839→    setQuickPriority(
+   840→      (p) =>
+   841→        PRIORITY_CYCLE[(PRIORITY_CYCLE.indexOf(p) + 1) % PRIORITY_CYCLE.length]
+   842→    );
+   843→
+   844→  const cycleDue = () =>
+   845→    setQuickDue(
+   846→      (d) => DUE_CYCLE[(DUE_CYCLE.indexOf(d) + 1) % DUE_CYCLE.length]
+   847→    );
+   848→
+   849→  const cycleRepeat = () =>
+   850→    setQuickRepeat(
+   851→      (r) => REPEAT_CYCLE[(REPEAT_CYCLE.indexOf(r) + 1) % REPEAT_CYCLE.length]
+   852→    );
+   853→
+   854→  const completedShown = completedTodos.length > 0 || tab === "completed";
+   855→  const completedExpanded = tab === "completed" || completedOpen;
+   856→  const hasAnyTodos = todos.length > 0;
+   857→
+   858→  const empty = EMPTY_BY_TAB[tab];
+   859→  const categoryMeta = TODO_CATEGORIES.find((c) => c.value === category);
+   860→  const categoryScoped = category !== "all" && hasAnyTodos;
+   861→  const showEmptyAction = tab === "all" || tab === "today" || tab === "upcoming";
+   862→  const focusQuickAdd = () => quickAddRef.current?.focus();
+   863→
+   864→  return (
+   865→    <div className="space-y-4 sm:space-y-5">
+   866→      <ViewHeader
+   867→        title="Tasks"
+   868→        subtitle={`${doneTodayCount} done today · ${overdueCount} overdue`}
+   869→        actions={
+   870→          completedTotal > 0 ? (
+   871→            <Button
+   872→              variant="outline"
+   873→              size="sm"
+   874→              onClick={() => setClearOpen(true)}
+   875→              className="gap-1.5 rounded-xl text-muted-foreground hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+   876→            >
+   877→              <Trash2 className="size-3.5" aria-hidden="true" />
+   878→              Clear completed
+   879→            </Button>
+   880→          ) : undefined
+   881→        }
+   882→      />
+   883→
+   884→      {/* Quick add */}
+   885→      <section aria-label="Add a task">
+   886→        <div className="rounded-2xl border bg-card p-2 shadow-card">
+   887→          <div className="flex items-center gap-1.5">
+   888→            <span
+   889→              className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"
+   890→              aria-hidden="true"
+   891→            >
+   892→              <Plus className="size-4.5" />
+   893→            </span>
+   894→            <Input
+   895→              ref={quickAddRef}
+   896→              value={quickTitle}
+   897→              onChange={(e) => setQuickTitle(e.target.value)}
+   898→              onKeyDown={(e) => {
+   899→                if (e.key === "Enter") {
+   900→                  e.preventDefault();
+   901→                  submitQuickAdd();
+   902→                }
+   903→              }}
+   904→              placeholder="Add a task…"
+   905→              aria-label="Task title"
+   906→              className="h-9 flex-1 border-0 bg-transparent px-1 shadow-none focus-visible:ring-0 dark:bg-transparent dark:border-0"
+   907→            />
+   908→            <Button
+   909→              size="icon"
+   910→              aria-label="Add task"
+   911→              onClick={submitQuickAdd}
+   912→              disabled={createMutation.isPending}
+   913→              className="size-9 shrink-0 rounded-xl"
+   914→            >
+   915→              {createMutation.isPending ? (
+   916→                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+   917→              ) : (
+   918→                <Plus className="size-4" aria-hidden="true" />
+   919→              )}
+   920→            </Button>
+   921→          </div>
+   922→          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 px-1 pb-1">
+   923→            <button
+   924→              type="button"
+   925→              onClick={cyclePriority}
+   926→              aria-label={`Priority: ${quickPriority}. Tap to change.`}
+   927→              title="Tap to change priority"
+   928→              className={cn(
+   929→                "inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium capitalize transition-colors",
+   930→                priorityChipStyles[quickPriority]
+   931→              )}
+   932→            >
+   933→              <span
+   934→                className={cn(
+   935→                  "size-2 rounded-full",
+   936→                  quickPriority === "urgent" && "bg-red-500",
+   937→                  quickPriority === "high" && "bg-orange-500",
+   938→                  quickPriority === "medium" && "bg-amber-500",
+   939→                  quickPriority === "low" && "bg-muted-foreground/50"
+   940→                )}
+   941→                aria-hidden="true"
+   942→              />
+   943→              {quickPriority}
+   944→            </button>
+   945→            <button
+   946→              type="button"
+   947→              onClick={cycleDue}
+   948→              aria-label={`Due: ${quickDue === "none" ? "no date" : quickDue}. Tap to change.`}
+   949→              title="Tap to change due date"
+   950→              className={cn(
+   951→                "inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium capitalize transition-colors",
+   952→                quickDue === "none"
+   953→                  ? "border-border bg-muted/50 text-muted-foreground"
+   954→                  : "border-primary/40 bg-primary/10 text-primary"
+   955→              )}
+   956→            >
+   957→              <CalendarDays className="size-3.5" aria-hidden="true" />
+   958→              {quickDue === "none" ? "No date" : quickDue}
+   959→            </button>
+   960→            <button
+   961→              type="button"
+   962→              onClick={cycleRepeat}
+   963→              aria-label={`Repeat: ${quickRepeat === "none" ? "never" : quickRepeat}. Tap to change.`}
+   964→              title="Tap to change repeat"
+   965→              className={cn(
+   966→                "inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors",
+   967→                quickRepeat === "none"
+   968→                  ? "border-border bg-muted/50 text-muted-foreground"
+   969→                  : "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+   970→              )}
+   971→            >
+   972→              <Repeat className="size-3.5" aria-hidden="true" />
+   973→              {quickRepeat === "none" ? "No repeat" : repeatOptionLabel(quickRepeat)}
+   974→            </button>
+   975→          </div>
+   976→        </div>
+   977→      </section>
+   978→
+   979→      {/* Filters */}
+   980→      <section aria-label="Filter tasks" className="space-y-2.5">
+   981→        <Tabs value={tab} onValueChange={(v) => setTab(v as TabValue)}>
+   982→          <TabsList className="h-10 w-full justify-between overflow-x-auto rounded-xl no-scrollbar">
+   983→            {TABS.map((t) => (
+   984→              <TabsTrigger
+   985→                key={t.value}
+   986→                value={t.value}
+   987→                className="flex-1 whitespace-nowrap px-2 text-xs sm:text-sm"
+   988→              >
+   989→                {t.label}
+   990→              </TabsTrigger>
+   991→            ))}
+   992→          </TabsList>
+   993→        </Tabs>
+   994→        <div
+   995→          className="flex gap-1.5 overflow-x-auto pb-0.5 no-scrollbar"
+   996→          role="group"
+   997→          aria-label="Filter by category"
+   998→        >
+   999→          <CategoryChip
+  1000→            label="All"
+  1001→            active={category === "all"}
+  1002→            onClick={() => setCategory("all")}
+  1003→          />
+  1004→          {TODO_CATEGORIES.map((c) => (
+  1005→            <CategoryChip
+  1006→              key={c.value}
+  1007→              label={`${c.label} ${c.emoji}`}
+  1008→              active={category === c.value}
+  1009→              onClick={() => setCategory(c.value)}
+  1010→            />
+  1011→          ))}
+  1012→        </div>
+  1013→      </section>
+  1014→
+  1015→      {/* Task list */}
+  1016→      {isLoading ? (
+  1017→        <TasksSkeleton />
+  1018→      ) : isError ? (
+  1019→        <EmptyState
+  1020→          icon={CloudOff}
+  1021→          title="Couldn't load your tasks"
+  1022→          description="Something went wrong while fetching your tasks. Check your connection and try again."
+  1023→          actionLabel="Try again"
+  1024→          onAction={() => void refetch()}
+  1025→        />
+  1026→      ) : filtered.length === 0 ? (
+  1027→        <EmptyState
+  1028→          icon={categoryScoped ? ListTodo : empty.icon}
+  1029→          title={
+  1030→            categoryScoped
+  1031→              ? `No ${categoryMeta?.label ?? category} tasks here`
+  1032→              : empty.title
+  1033→          }
+  1034→          description={
+  1035→            categoryScoped
+  1036→              ? "Try another category filter, or add a new task in this one."
+  1037→              : empty.description
+  1038→          }
+  1039→          actionLabel={showEmptyAction ? "Add a task" : undefined}
+  1040→          onAction={showEmptyAction ? focusQuickAdd : undefined}
+  1041→        />
+  1042→      ) : (
+  1043→        <div className="divide-y divide-border/70 rounded-2xl border bg-card shadow-card">
+  1044→          {visibleGroups.map((g) => (
+  1045→            <section key={g.id} aria-label={`${g.label} tasks`}>
+  1046→              <GroupLabel
+  1047→                label={g.label}
+  1048→                count={g.items.length}
+  1049→                danger={g.tone === "danger"}
+  1050→              />
+  1051→              <div className="stagger-list divide-y divide-border/60">
+  1052→                {g.items.map((t) => (
+  1053→                  <TodoRow
+  1054→                    key={t.id}
+  1055→                    todo={t}
+  1056→                    onToggle={(todo) => toggleMutation.mutate(todo)}
+  1057→                    onEdit={setEditing}
+  1058→                    onDelete={setDeleting}
+  1059→                  />
+  1060→                ))}
+  1061→              </div>
+  1062→            </section>
+  1063→          ))}
+  1064→
+  1065→          {completedShown && (
+  1066→            <section aria-label="Completed tasks">
+  1067→              <div className="sticky top-16 z-10 flex items-center justify-between gap-2 border-b border-border/70 bg-card/95 px-3 py-1 backdrop-blur sm:px-4 lg:top-0">
+  1068→                <button
+  1069→                  type="button"
+  1070→                  onClick={() => setCompletedOpen((v) => !v)}
+  1071→                  aria-expanded={completedExpanded}
+  1072→                  className="flex items-center gap-1 rounded-md py-0.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
+  1073→                >
+  1074→                  <ChevronDown
+  1075→                    className={cn(
+  1076→                      "size-3.5 transition-transform duration-200",
+  1077→                      completedExpanded && "rotate-180"
+  1078→                    )}
+  1079→                    aria-hidden="true"
+  1080→                  />
+  1081→                  Completed
+  1082→                </button>
+  1083→                <div className="flex items-center gap-2.5">
+  1084→                  <span className="text-xs font-medium tabular-nums text-muted-foreground/70">
+  1085→                    {completedTodos.length}
+  1086→                  </span>
+  1087→                  {completedTodos.length > 0 && (
+  1088→                    <button
+  1089→                      type="button"
+  1090→                      onClick={() => setClearOpen(true)}
+  1091→                      className="rounded-md px-1 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:text-destructive"
+  1092→                    >
+  1093→                      Clear
+  1094→                    </button>
+  1095→                  )}
+  1096→                </div>
+  1097→              </div>
+  1098→              {completedExpanded && (
+  1099→                <div className="max-h-72 divide-y divide-border/60 overflow-y-auto">
+  1100→                  {completedTodos.map((t) => (
+  1101→                    <TodoRow
+  1102→                      key={t.id}
+  1103→                      todo={t}
+  1104→                      onToggle={(todo) => toggleMutation.mutate(todo)}
+  1105→                      onEdit={setEditing}
+  1106→                      onDelete={setDeleting}
+  1107→                    />
+  1108→                  ))}
+  1109→                </div>
+  1110→              )}
+  1111→            </section>
+  1112→          )}
+  1113→        </div>
+  1114→      )}
+  1115→
+  1116→      {/* Edit dialog */}
+  1117→      {editing && (
+  1118→        <EditTaskDialog
+  1119→          key={editing.id}
+  1120→          todo={editing}
+  1121→          saving={updateMutation.isPending}
+  1122→          onCancel={() => setEditing(null)}
+  1123→          onSave={(patch) =>
+  1124→            updateMutation.mutate({ id: editing.id, patch })
+  1125→          }
+  1126→        />
+  1127→      )}
+  1128→
+  1129→      {/* Delete confirm */}
+  1130→      <AlertDialog
+  1131→        open={!!deleting}
+  1132→        onOpenChange={(open) => {
+  1133→          if (!open) setDeleting(null);
+  1134→        }}
+  1135→      >
+  1136→        <AlertDialogContent>
+  1137→          <AlertDialogHeader>
+  1138→            <AlertDialogTitle>Delete this task?</AlertDialogTitle>
+  1139→            <AlertDialogDescription>
+  1140→              &ldquo;{deleting?.title}&rdquo; will be permanently removed. This
+  1141→              cannot be undone.
+  1142→            </AlertDialogDescription>
+  1143→          </AlertDialogHeader>
+  1144→          <AlertDialogFooter>
+  1145→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+  1146→            <AlertDialogAction
+  1147→              onClick={(e) => {
+  1148→                e.preventDefault();
+  1149→                if (deleting) deleteMutation.mutate(deleting.id);
+  1150→              }}
+  1151→              className="bg-destructive text-white hover:bg-destructive/90"
+  1152→            >
+  1153→              {deleteMutation.isPending && (
+  1154→                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+  1155→              )}
+  1156→              Delete
+  1157→            </AlertDialogAction>
+  1158→          </AlertDialogFooter>
+  1159→        </AlertDialogContent>
+  1160→      </AlertDialog>
+  1161→
+  1162→      {/* Clear completed confirm */}
+  1163→      <AlertDialog open={clearOpen} onOpenChange={setClearOpen}>
+  1164→        <AlertDialogContent>
+  1165→          <AlertDialogHeader>
+  1166→            <AlertDialogTitle>Clear completed tasks?</AlertDialogTitle>
+  1167→            <AlertDialogDescription>
+  1168→              {completedTotal} completed {completedTotal === 1 ? "task" : "tasks"}{" "}
+  1169→              will be permanently deleted. This cannot be undone.
+  1170→            </AlertDialogDescription>
+  1171→          </AlertDialogHeader>
+  1172→          <AlertDialogFooter>
+  1173→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+  1174→            <AlertDialogAction
+  1175→              onClick={(e) => {
+  1176→                e.preventDefault();
+  1177→                clearMutation.mutate();
+  1178→              }}
+  1179→              className="bg-destructive text-white hover:bg-destructive/90"
+  1180→            >
+  1181→              {clearMutation.isPending && (
+  1182→                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+  1183→              )}
+  1184→              Clear all
+  1185→            </AlertDialogAction>
+  1186→          </AlertDialogFooter>
+  1187→        </AlertDialogContent>
+  1188→      </AlertDialog>
+  1189→    </div>
+  1190→  );
+  1191→}
+  1192→

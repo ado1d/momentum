@@ -31,6 +31,20 @@ export type NoteColor =
   | "violet"
   | "teal";
 
+export interface Subtask {
+  id: string;
+  todoId: string;
+  title: string;
+  completed: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SubtaskInput {
+  title: string;
+}
+
 export interface Todo {
   id: string;
   title: string;
@@ -44,6 +58,7 @@ export interface Todo {
   completedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  subtasks: Subtask[]; // ordered by sortOrder
 }
 
 export interface TodoInput {
@@ -266,6 +281,78 @@ export interface SearchResults {
   goals: Goal[]; // max 5
   journal: JournalEntry[]; // max 5
   habits: Habit[]; // max 5
+}
+
+// ─────────────────────────────────────────────────────────────
+// Weekly review (generated summary)
+// ─────────────────────────────────────────────────────────────
+export interface WeeklyReviewHabit {
+  id: string;
+  name: string;
+  emoji: string;
+  done: number; // days completed in the week
+  total: number; // days scheduled (7)
+  pct: number; // 0..100
+}
+
+export interface WeeklyReviewTask {
+  title: string;
+  completedAt: string | null; // ISO
+  priority: string;
+}
+
+export interface WeeklyReviewGoal {
+  id: string;
+  title: string;
+  period: GoalPeriod;
+  progress: number;
+  target: number;
+  unit: string | null;
+  status: GoalStatus;
+}
+
+export interface WeeklyReviewJournal {
+  date: string; // YYYY-MM-DD
+  title: string | null;
+  mood: Mood | null;
+}
+
+export interface WeeklyReview {
+  weekStart: string; // YYYY-MM-DD
+  weekEnd: string; // YYYY-MM-DD
+  scores: DayStat[]; // 7 days, oldest first
+  avgScore: number; // 0..100
+  prevAvgScore: number; // previous week, 0..100
+  bestDay: { date: string; score: number } | null;
+  tasksCompleted: number;
+  taskList: WeeklyReviewTask[]; // max 20, newest completion first
+  habits: WeeklyReviewHabit[];
+  goalSnapshots: WeeklyReviewGoal[]; // active goals
+  journal: WeeklyReviewJournal[]; // entries written that week
+  focusMinutes: number;
+  focusSessions: number;
+  focusVsLastWeek: number; // pct change vs previous week (e.g. +25 / -40)
+  habitChecks: number; // total habit check-ins in the week
+}
+
+// ─────────────────────────────────────────────────────────────
+// Backup import (round-trip of /api/export?format=json)
+// ─────────────────────────────────────────────────────────────
+export interface ImportCounts {
+  todos: number;
+  habits: number;
+  routineTasks: number;
+  notes: number;
+  journal: number;
+  goals: number;
+  skipped: number; // rows skipped in merge mode (id already exists)
+}
+
+export interface ImportResult {
+  ok: boolean;
+  mode: "merge" | "replace";
+  counts: ImportCounts;
+  message: string;
 }
 
 export interface DashboardStats {

@@ -82,6 +82,25 @@ function moodLabelOf(mood: Mood | null): string {
   return MOODS.find((m) => m.value === mood)?.label ?? "";
 }
 
+/** Soft tinted halos per mood (all /10 backgrounds, theme aware). */
+const MOOD_TINT: Record<Mood, string> = {
+  great: "bg-emerald-500/10 ring-1 ring-emerald-500/15",
+  good: "bg-teal-500/10 ring-1 ring-teal-500/15",
+  okay: "bg-amber-500/10 ring-1 ring-amber-500/15",
+  low: "bg-orange-500/10 ring-1 ring-orange-500/15",
+  rough: "bg-rose-500/10 ring-1 ring-rose-500/15",
+};
+
+/** Matching outline badge tint for the expanded entry panel. */
+const MOOD_BADGE: Record<Mood, string> = {
+  great:
+    "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  good: "border-teal-500/30 bg-teal-500/10 text-teal-700 dark:text-teal-300",
+  okay: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  low: "border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300",
+  rough: "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+};
+
 /** Longest run of consecutive day keys in a list of entries */
 function longestStreakOf(entries: JournalEntry[]): number {
   const keys = Array.from(new Set(entries.map((e) => e.date))).sort();
@@ -179,7 +198,7 @@ function TimelineRow({
   return (
     <div
       className={cn(
-        "press overflow-hidden rounded-2xl border bg-card shadow-card transition-colors",
+        "press relative overflow-hidden rounded-2xl border bg-card shadow-card transition-colors",
         isCurrent && "border-primary/40"
       )}
     >
@@ -191,7 +210,13 @@ function TimelineRow({
           aria-controls={`entry-panel-${entry.id}`}
           className="flex min-h-[3.25rem] flex-1 items-center gap-3 rounded-l-2xl p-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
         >
-          <span className="w-8 shrink-0 text-center text-xl" aria-hidden="true">
+          <span
+            className={cn(
+              "flex size-9 shrink-0 items-center justify-center rounded-xl text-xl",
+              entry.mood ? MOOD_TINT[entry.mood] : "bg-muted/50"
+            )}
+            aria-hidden="true"
+          >
             {moodEmojiOf(entry.mood) || "·"}
           </span>
           <span className="min-w-0 flex-1">
@@ -257,7 +282,10 @@ function TimelineRow({
               {entry.mood && (
                 <Badge
                   variant="outline"
-                  className="rounded-full px-2 py-0 text-[10px] font-semibold uppercase tracking-wide"
+                  className={cn(
+                    "rounded-full px-2 py-0 text-[10px] font-semibold uppercase tracking-wide",
+                    MOOD_BADGE[entry.mood]
+                  )}
                 >
                   {moodEmojiOf(entry.mood)} {moodLabelOf(entry.mood)}
                 </Badge>
@@ -738,10 +766,16 @@ export function DiaryView() {
               <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                 Past entries
               </h2>
-              <div className="stagger-list space-y-5">
+              <div className="stagger-list relative space-y-5">
+                {/* Timeline thread — fades out at both ends, peeks through
+                    the gaps between rows and beside month labels. */}
+                <span
+                  aria-hidden="true"
+                  className="fade-ends-y absolute bottom-3 left-[30px] top-0 w-px"
+                />
                 {timeline.map((group) => (
                   <div key={group.month}>
-                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
+                    <h3 className="mb-2 pl-9 text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
                       {group.month}
                     </h3>
                     <div className="space-y-2">

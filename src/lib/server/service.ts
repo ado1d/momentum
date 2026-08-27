@@ -3,12 +3,14 @@
 // required by the contract in src/lib/types.ts.
 
 import { db } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 import type {
   Goal as GoalRow,
   Habit as HabitBaseRow,
   JournalEntry as JournalEntryRow,
   Note as NoteRow,
   RoutineTask as RoutineTaskBaseRow,
+  Subtask as SubtaskRow,
   Todo as TodoRow,
 } from "@prisma/client";
 import type {
@@ -17,6 +19,7 @@ import type {
   JournalEntry,
   Note,
   RoutineTask,
+  Subtask,
   Todo,
 } from "@/lib/types";
 import { addDaysToKey, computeStreak, isoWeekdayOfKey, todayKey, weekStartKeyOf } from "./daykeys";
@@ -25,6 +28,26 @@ export type HabitWithLogs = HabitBaseRow & { logs: { id: string; habitId: string
 export type RoutineTaskWithLogs = RoutineTaskBaseRow & {
   logs: { id: string; taskId: string; date: string }[];
 };
+
+/** A todo row with its subtasks (order preserved by query). */
+export type TodoWithSubtasks = TodoRow & { subtasks: SubtaskRow[] };
+
+/** Prisma include clause for todos that eagerly loads ordered subtasks. */
+export const todoWithSubtasksInclude = {
+  subtasks: { orderBy: { sortOrder: "asc" as const } },
+} satisfies Prisma.TodoInclude;
+
+export function serializeSubtask(s: SubtaskRow): Subtask {
+  return {
+    id: s.id,
+    todoId: s.todoId,
+    title: s.title,
+    completed: s.completed,
+    sortOrder: s.sortOrder,
+    createdAt: s.createdAt.toISOString(),
+    updatedAt: s.updatedAt.toISOString(),
+  };
+}
 
 /** Number of days of habit/routine logs returned in list responses. */
 export const LOG_WINDOW_DAYS = 60;
@@ -79,7 +102,8 @@ export async function habitContext(): Promise<{ today: string; weekStart: string
 
 // ── Serializers (Prisma row → contract shape) ────────────────
 
-export function serializeTodo(t: TodoRow): Todo {
+/** Serializes a todo; rows without an eager `subtasks` include get []. */
+export function serializeTodo(t: TodoRow & { subtasks?: SubtaskRow[] }): Todo {
   return {
     id: t.id,
     title: t.title,
@@ -93,6 +117,7 @@ export function serializeTodo(t: TodoRow): Todo {
     completedAt: t.completedAt ? t.completedAt.toISOString() : null,
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),
+    subtasks: (t.subtasks ?? []).map(serializeSubtask),
   };
 }
 

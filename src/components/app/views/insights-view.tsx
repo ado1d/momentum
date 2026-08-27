@@ -9,10 +9,12 @@ import {
   BookOpen,
   CalendarCheck,
   CheckCircle2,
+  ChevronRight,
   CloudOff,
   Flame,
   Gauge,
   Repeat,
+  Sparkles,
   Timer,
   TrendingDown,
   TrendingUp,
@@ -29,6 +31,7 @@ import { EmptyState } from "@/components/app/shared/empty-state";
 import { habitDotStyles, habitRingStyles } from "@/components/app/shared/badges";
 import { ProgressBar } from "@/components/app/shared/progress";
 import { ViewHeader } from "@/components/app/shared/view-header";
+import { ReviewDialog } from "@/components/app/review-dialog";
 import { cn } from "@/lib/utils";
 
 type TrendPoint = { date: string; count: number };
@@ -805,10 +808,43 @@ function FocusCard({ focus }: { focus: InsightsData["focus"] }) {
   );
 }
 
+// ── Weekly review CTA ────────────────────────────────────────
+
+/** Emerald-gradient-bordered call-to-action that opens the weekly review dialog. */
+function WeeklyReviewCta({ onOpen }: { onOpen: () => void }) {
+  return (
+    <div className="rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-400 p-px shadow-card">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="press flex w-full items-center gap-3 rounded-[calc(1rem-1px)] bg-background px-4 py-3.5 text-left transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      >
+        <span
+          className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white"
+          aria-hidden="true"
+        >
+          <Sparkles className="size-5" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-semibold">Weekly review</span>
+          <span className="block truncate text-xs text-muted-foreground">
+            Your week in one view — scores, wins &amp; moments
+          </span>
+        </span>
+        <ChevronRight
+          className="size-4 shrink-0 text-muted-foreground"
+          aria-hidden="true"
+        />
+      </button>
+    </div>
+  );
+}
+
 // ── Main view ────────────────────────────────────────────────
 
 export function InsightsView() {
   const setView = useUiStore((s) => s.setView);
+  const [reviewOpen, setReviewOpen] = React.useState(false);
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["insights"],
     queryFn: statsApi.insights,
@@ -825,18 +861,22 @@ export function InsightsView() {
 
       <div className="space-y-4 sm:space-y-5">
         <FadeIn>
-          <TotalsStrip totals={data.totals} />
+          <WeeklyReviewCta onOpen={() => setReviewOpen(true)} />
         </FadeIn>
 
         <FadeIn delay={0.05}>
-          <HeatmapCard heatmap={data.heatmap} />
+          <TotalsStrip totals={data.totals} />
         </FadeIn>
 
         <FadeIn delay={0.1}>
-          <TasksTrendCard trend={data.todosTrend} />
+          <HeatmapCard heatmap={data.heatmap} />
         </FadeIn>
 
         <FadeIn delay={0.15}>
+          <TasksTrendCard trend={data.todosTrend} />
+        </FadeIn>
+
+        <FadeIn delay={0.2}>
           <HabitConsistencyCard
             habits={data.habitConsistency}
             onGoRoutine={() => setView("routine")}
@@ -844,22 +884,24 @@ export function InsightsView() {
         </FadeIn>
 
         {data.moodDistribution.length > 0 && (
-          <FadeIn delay={0.2}>
+          <FadeIn delay={0.25}>
             <MoodCard distribution={data.moodDistribution} />
           </FadeIn>
         )}
 
-        <FadeIn delay={0.25}>
+        <FadeIn delay={0.3}>
           <FocusCard focus={data.focus} />
         </FadeIn>
 
-        <FadeIn delay={0.3}>
+        <FadeIn delay={0.35}>
           <p className="pb-2 pt-1 text-center text-xs text-muted-foreground">
             Insights update as you use Momentum — complete tasks, check habits,
             write your diary.
           </p>
         </FadeIn>
       </div>
+
+      <ReviewDialog open={reviewOpen} onOpenChange={setReviewOpen} />
     </div>
   );
 }

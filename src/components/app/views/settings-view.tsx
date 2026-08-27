@@ -7,20 +7,27 @@ import {
   Bell,
   BellOff,
   BookOpen,
+  CheckCircle2,
   DatabaseBackup,
+  FileJson,
   FileText,
   Loader2,
   ListTodo,
+  Merge,
   Printer,
   Settings as SettingsIcon,
+  ShieldCheck,
   Sparkles,
   StickyNote,
   TriangleAlert,
+  Upload,
+  X,
   Zap,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Card,
   CardContent,
@@ -29,6 +36,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Select,
   SelectContent,
@@ -41,7 +49,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 
 import { ViewHeader } from "@/components/app/shared/view-header";
-import { exportApi, settingsApi } from "@/lib/api";
+import { exportApi, importApi, settingsApi } from "@/lib/api";
 import {
   downloadJson,
   downloadMarkdown,
@@ -52,7 +60,7 @@ import {
   notificationPermission,
   requestNotificationPermission,
 } from "@/lib/notifications";
-import type { AppSettings } from "@/lib/types";
+import type { AppSettings, ImportCounts, ImportResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 // ── Constants ────────────────────────────────────────────────
@@ -131,6 +139,446 @@ function ExportButton({ id, icon: Icon, label, busy, onRun }: ExportButtonProps)
         {isBusy ? "Preparing…" : label}
       </span>
     </Button>
+  );
+}
+
+// ── Backup import (restore) ─────────────────────────────────
+
+const MAX_BACKUP_BYTES = 20 * 1024 * 1024; // sanity cap: 20 MB
+
+// A file counts as a plausible backup when at least one of these is an array.
+const BACKUP_ARRAY_KEYS = [
+  "todos",
+  "subtasks",
+  "habits",
+  "routineTasks",
+  "notes",
+  "journal",
+  "goals",
+] as const;
+
+interface ParsedBackup {
+  fileName: string;
+  sizeLabel: string;
+  exportedAt: string | null; // pre-formatted friendly label
+  data: Record<string, unknown>;
+  preview: { label: string; count: number }[];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function arrayCount(data: Record<string, unknown>, key: string): number {
+  const value = data[key];
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function friendlyTimestamp(value: unknown): string | null {
+  if (typeof value !== "string" || value.length === 0) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+function pluralize(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+function formatImportCounts(counts: ImportCounts): string {
+  const parts = [
+    pluralize(counts.todos, "task", "tasks"),
+    pluralize(counts.habits, "habit", "habits"),
+  ];
+  if (counts.routineTasks > 0) {
+    parts.push(pluralize(counts.routineTasks, "routine task", "routine tasks"));
+  }
+  parts.push(
+    pluralize(counts.notes, "note", "notes"),
+    pluralize(counts.journal, "journal entry", "journal entries"),
+    pluralize(counts.goals, "goal", "goals"),
+  );
+  parts.push(`${counts.skipped} skipped`);
+  return parts.join(" · ");
+}
+
+function ImportSection() {
+  const queryClient = useQueryClient();
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const [parsed, setParsed] = React.useState<ParsedBackup | null>(null);
+  const [mode, setMode] = React.useState<"merge" | "replace">("merge");
+  const [replaceConfirmed, setReplaceConfirmed] = React.useState(false);
+  const [dragging, setDragging] = React.useState(false);
+  const [result, setResult] = React.useState<ImportResult | null>(null);
+
+  const importBackup = useMutation({
+    mutationFn: () => {
+      if (!parsed) throw new Error("Choose a backup file first");
+      return importApi.restore(parsed.data, mode);
+    },
+    onSuccess: (res) => {
+      toast.success(res.message);
+      setResult(res);
+      // Reset the pick + confirmation; the success panel stays visible
+      // until another file is chosen or it is dismissed.
+      setParsed(null);
+      setMode("merge");
+      setReplaceConfirmed(false);
+      // An import can touch every feature (todos, subtasks, habits, routine,
+      // notes, journal, goals, settings — plus derived stats / insights /
+      // focus / review / search), so invalidate ALL queries — the robust
+      // and simplest option after a full restore.
+      void queryClient.invalidateQueries();
+    },
+    onError: (error) => {
+      toast.error(error.message || "Import failed — please try again");
+    },
+  });
+
+  const isImporting = importBackup.isPending;
+
+  const openPicker = () => {
+    if (!isImporting) fileInputRef.current?.click();
+  };
+
+  const handleFile = (file: File | undefined | null) => {
+    if (!file || isImporting) return;
+    setResult(null); // choosing a new file clears the previous outcome
+    if (file.size > MAX_BACKUP_BYTES) {
+      toast.error("File too large — backups up to 20 MB are supported");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => toast.error("Could not read the file — try again");
+    reader.onload = () => {
+      let json: unknown;
+      try {
+        json = JSON.parse(String(reader.result ?? ""));
+      } catch {
+        toast.error("Invalid JSON file");
+        return;
+      }
+      if (
+        !isRecord(json) ||
+        !BACKUP_ARRAY_KEYS.some((key) => Array.isArray(json[key]))
+      ) {
+        toast.error("Not a Momentum backup file");
+        return;
+      }
+      setParsed({
+        fileName: file.name,
+        sizeLabel: formatBytes(file.size),
+        exportedAt: friendlyTimestamp(json.exportedAt),
+        data: json,
+        preview: [
+          { label: "tasks", count: arrayCount(json, "todos") },
+          { label: "subtasks", count: arrayCount(json, "subtasks") },
+          { label: "habits", count: arrayCount(json, "habits") },
+          { label: "routine", count: arrayCount(json, "routineTasks") },
+          { label: "notes", count: arrayCount(json, "notes") },
+          { label: "journal", count: arrayCount(json, "journal") },
+          { label: "goals", count: arrayCount(json, "goals") },
+        ].filter((p) => p.count > 0),
+      });
+      setMode("merge");
+      setReplaceConfirmed(false);
+    };
+    reader.readAsText(file);
+  };
+
+  const clearFile = () => {
+    setParsed(null);
+    setMode("merge");
+    setReplaceConfirmed(false);
+  };
+
+  const canImport =
+    parsed !== null && !isImporting && (mode === "merge" || replaceConfirmed);
+
+  return (
+    <Card className="rounded-2xl py-0 shadow-card">
+      <CardHeader className="p-4 pb-2 sm:p-6 sm:pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Upload className="size-4.5 text-primary" aria-hidden="true" />
+          Import &amp; restore
+        </CardTitle>
+        <CardDescription>
+          Restore a Momentum JSON backup — merge it in, or replace everything.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 p-4 pt-2 sm:p-6 sm:pt-2">
+        {/* Drop / pick zone */}
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label="Choose a backup file, or drop one here"
+          aria-disabled={isImporting}
+          onClick={openPicker}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              openPicker();
+            }
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            handleFile(e.dataTransfer.files?.[0]);
+          }}
+          className={cn(
+            "flex cursor-pointer flex-col items-center gap-1.5 rounded-2xl border-2 border-dashed px-4 py-7 text-center transition-colors",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 hover:border-primary/50 hover:bg-primary/5",
+            dragging && "border-primary bg-primary/5",
+            isImporting && "pointer-events-none opacity-60"
+          )}
+        >
+          <FileJson className="size-8 text-primary" aria-hidden="true" />
+          <p className="mt-1 text-sm font-semibold">
+            {parsed ? "Choose a different backup" : "Drag & drop a backup file"}
+          </p>
+          <p className="text-xs text-muted-foreground">or</p>
+          <span className="inline-flex h-9 items-center rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm">
+            Choose backup file
+          </span>
+          <p className="mt-1.5 text-[11px] text-muted-foreground/80">
+            JSON backups from “Backup (JSON)” · up to 20 MB
+          </p>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,application/json"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = ""; // allow re-picking the same file
+              handleFile(file);
+            }}
+          />
+        </div>
+
+        {/* Parsed backup preview */}
+        {parsed && (
+          <div className="rounded-xl border bg-muted/30 p-3.5">
+            <div className="flex items-start gap-3">
+              <FileJson
+                className="mt-0.5 size-4.5 shrink-0 text-primary"
+                aria-hidden="true"
+              />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold" title={parsed.fileName}>
+                  {parsed.fileName}
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {parsed.exportedAt ? `Exported ${parsed.exportedAt} · ` : ""}
+                  {parsed.sizeLabel}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-7 shrink-0 rounded-lg text-muted-foreground"
+                onClick={clearFile}
+                aria-label="Remove selected backup file"
+              >
+                <X className="size-4" aria-hidden="true" />
+              </Button>
+            </div>
+            <div className="mt-2.5 flex flex-wrap gap-1.5">
+              {parsed.preview.length > 0 ? (
+                parsed.preview.map((p) => (
+                  <Badge
+                    key={p.label}
+                    variant="secondary"
+                    className="rounded-full px-2.5 py-0.5 text-[11px] font-medium"
+                  >
+                    {p.count} {p.label}
+                  </Badge>
+                ))
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  No items found in this backup.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Mode selector */}
+        <RadioGroup
+          value={mode}
+          onValueChange={(v) => {
+            setMode(v === "replace" ? "replace" : "merge");
+            setReplaceConfirmed(false);
+          }}
+          disabled={isImporting}
+          className="grid gap-2.5"
+          aria-label="Import mode"
+        >
+          <label
+            htmlFor="import-mode-merge"
+            className={cn(
+              "flex cursor-pointer items-start gap-3 rounded-xl border p-3.5 transition-colors",
+              mode === "merge"
+                ? "border-emerald-500/60 bg-emerald-500/5"
+                : "hover:bg-muted/40"
+            )}
+          >
+            <RadioGroupItem value="merge" id="import-mode-merge" className="mt-0.5" />
+            <span className="min-w-0 flex-1">
+              <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold">
+                <Merge
+                  className="size-4 text-emerald-600 dark:text-emerald-400"
+                  aria-hidden="true"
+                />
+                Merge
+                <span className="rounded-full bg-emerald-500/10 px-2 py-0 text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+                  Safe
+                </span>
+              </span>
+              <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+                Add only items that don&apos;t already exist. Nothing you have
+                today is changed or overwritten.
+              </span>
+            </span>
+          </label>
+
+          <label
+            htmlFor="import-mode-replace"
+            className={cn(
+              "flex cursor-pointer items-start gap-3 rounded-xl border p-3.5 transition-colors",
+              mode === "replace"
+                ? "border-destructive/60 bg-destructive/5"
+                : "hover:bg-muted/40"
+            )}
+          >
+            <RadioGroupItem value="replace" id="import-mode-replace" className="mt-0.5" />
+            <span className="min-w-0 flex-1">
+              <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold">
+                <TriangleAlert
+                  className="size-4 text-rose-600 dark:text-rose-400"
+                  aria-hidden="true"
+                />
+                Replace
+              </span>
+              <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+                Delete{" "}
+                <strong className="font-semibold text-foreground">
+                  all current data
+                </strong>{" "}
+                and restore this backup exactly as it was. This cannot be undone.
+              </span>
+            </span>
+          </label>
+        </RadioGroup>
+
+        {/* Extra explicit confirmation for the destructive mode */}
+        {mode === "replace" && (
+          <div className="flex items-start gap-3 rounded-xl border border-destructive/40 bg-destructive/5 p-3.5">
+            <Checkbox
+              id="import-replace-confirm"
+              checked={replaceConfirmed}
+              onCheckedChange={(checked) => setReplaceConfirmed(checked === true)}
+              disabled={isImporting}
+              className="mt-0.5"
+            />
+            <Label
+              htmlFor="import-replace-confirm"
+              className="cursor-pointer text-xs font-normal leading-relaxed text-destructive"
+            >
+              I understand{" "}
+              <strong className="font-semibold">
+                all current data will be deleted
+              </strong>{" "}
+              — tasks, habits, routine, notes, journal and goals — before this
+              backup is restored.
+            </Label>
+          </div>
+        )}
+
+        {/* Primary action */}
+        <Button
+          type="button"
+          size="lg"
+          variant={mode === "replace" ? "destructive" : "default"}
+          onClick={() => importBackup.mutate()}
+          disabled={!canImport}
+          className="w-full rounded-xl"
+          aria-label={
+            mode === "replace"
+              ? "Delete all data and restore this backup"
+              : "Import backup"
+          }
+        >
+          {isImporting ? (
+            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <Upload className="size-4" aria-hidden="true" />
+          )}
+          {isImporting
+            ? "Importing…"
+            : mode === "replace"
+              ? "Delete everything & restore backup"
+              : "Import backup"}
+        </Button>
+
+        {/* Success panel */}
+        {result && (
+          <div
+            className="rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-3.5"
+            role="status"
+          >
+            <div className="flex items-start gap-3">
+              <CheckCircle2
+                className="mt-0.5 size-4.5 shrink-0 text-emerald-600 dark:text-emerald-400"
+                aria-hidden="true"
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold">
+                  {result.mode === "replace" ? "Backup restored" : "Backup merged"}
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  {formatImportCounts(result.counts)}
+                </p>
+                <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground/80">
+                  Everything refreshes automatically — switch to Tasks, Notes,
+                  Diary or Insights to see it.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-7 shrink-0 rounded-lg text-muted-foreground"
+                onClick={() => setResult(null)}
+                aria-label="Dismiss import result"
+              >
+                <X className="size-4" aria-hidden="true" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Privacy hint */}
+        <p className="flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
+          <ShieldCheck className="size-3.5 shrink-0" aria-hidden="true" />
+          Your data stays on this device — backups are plain JSON files you
+          control.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -442,7 +890,7 @@ export function SettingsView() {
             <CardHeader className="p-4 pb-2 sm:p-6 sm:pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
                 <DatabaseBackup className="size-4.5 text-primary" aria-hidden="true" />
-                Data &amp; export
+                Export data
               </CardTitle>
               <CardDescription>
                 Your data lives on this device&apos;s database. Take it anywhere.
@@ -495,6 +943,9 @@ export function SettingsView() {
               </div>
             </CardContent>
           </Card>
+
+          {/* ── Import & restore ── */}
+          <ImportSection />
 
           {/* ── About ── */}
           <Card className="rounded-2xl py-0 shadow-card">

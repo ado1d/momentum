@@ -80,7 +80,7 @@ export async function GET() {
 
     const [todos, habits, routineTasks, recentJournalRows, journalToday, activeGoalRows] =
       await Promise.all([
-        db.todo.findMany(),
+        db.todo.findMany({ include: { subtasks: { orderBy: { sortOrder: "asc" } } } }),
         fetchHabitsWithLogs(),
         fetchRoutineTasksWithLogs(),
         db.journalEntry.findMany({ orderBy: { date: "desc" }, take: 3 }),

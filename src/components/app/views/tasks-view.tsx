@@ -13,6 +13,7 @@ import {
   Clock,
   CloudOff,
   FileText,
+  ListChecks,
   ListTodo,
   Loader2,
   MoreVertical,
@@ -20,10 +21,11 @@ import {
   Plus,
   Repeat,
   Trash2,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { todosApi } from "@/lib/api";
+import { subtasksApi, todosApi } from "@/lib/api";
 import {
   addDaysToKey,
   dateToKey,
@@ -38,6 +40,7 @@ import {
   TODO_CATEGORIES,
   type Priority,
   type RepeatKind,
+  type Subtask,
   type Todo,
   type TodoInput,
 } from "@/lib/types";
@@ -267,21 +270,156 @@ function GroupLabel({
   );
 }
 
+/** One checklist row inside an expanded task: checkbox + title + hover delete. */
+function SubtaskItem({
+  subtask,
+  onToggle,
+  onDelete,
+}: {
+  subtask: Subtask;
+  onToggle: (subtask: Subtask) => void;
+  onDelete: (subtask: Subtask) => void;
+}) {
+  return (
+    <div className="group/sub flex items-center gap-2 rounded-lg px-1 py-0.5 transition-colors hover:bg-muted/70">
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={subtask.completed}
+        aria-label={`${subtask.completed ? "Undo" : "Complete"} step: ${subtask.title}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle(subtask);
+        }}
+        className={cn(
+          "relative flex size-4 shrink-0 items-center justify-center rounded-[5px] border-2 transition-all duration-200 active:scale-75",
+          subtask.completed
+            ? "border-primary bg-primary text-primary-foreground"
+            : "border-muted-foreground/30 hover:border-primary/60 hover:bg-primary/10"
+        )}
+      >
+        <Check
+          className={cn(
+            "size-2.5 transition-all duration-200",
+            subtask.completed ? "scale-100 opacity-100" : "scale-50 opacity-0"
+          )}
+          strokeWidth={4}
+          aria-hidden="true"
+        />
+        <span className="absolute -inset-1.5" aria-hidden="true" />
+      </button>
+      <span
+        className={cn(
+          "min-w-0 flex-1 break-words text-xs leading-snug transition-colors duration-200",
+          subtask.completed
+            ? "text-muted-foreground/70 line-through decoration-muted-foreground/50"
+            : "text-foreground/90"
+        )}
+      >
+        {subtask.title}
+      </span>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete(subtask);
+        }}
+        aria-label={`Delete step: ${subtask.title}`}
+        className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/50 opacity-60 transition-all hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 group-hover/sub:opacity-100 [@media(hover:hover)]:opacity-0"
+      >
+        <X className="size-3" aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
+/** Inline checklist panel shown under a task row: steps + "Add a step" input. */
+function SubtaskChecklist({
+  todo,
+  onAdd,
+  onToggle,
+  onDelete,
+}: {
+  todo: Todo;
+  onAdd: (todoId: string, title: string) => void;
+  onToggle: (subtask: Subtask) => void;
+  onDelete: (subtask: Subtask) => void;
+}) {
+  const [title, setTitle] = React.useState("");
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    onAdd(todo.id, trimmed);
+    setTitle("");
+  };
+
+  return (
+    <div
+      className={cn(
+        "mt-2 animate-in fade-in slide-in-from-top-1 space-y-0.5 rounded-xl border border-border/70 bg-muted/30 p-1.5 duration-200",
+        todo.completed && "opacity-60"
+      )}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {todo.subtasks.map((s) => (
+        <SubtaskItem
+          key={s.id}
+          subtask={s}
+          onToggle={onToggle}
+          onDelete={onDelete}
+        />
+      ))}
+      <form
+        onSubmit={submit}
+        className="flex items-center gap-1.5 rounded-lg px-1 py-0.5"
+      >
+        <Plus
+          className="size-3 shrink-0 text-muted-foreground/70"
+          aria-hidden="true"
+        />
+        <Input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Add a step…"
+          aria-label={`Add a step to "${todo.title}"`}
+          className="h-7 flex-1 border-0 bg-transparent px-1 text-xs shadow-none focus-visible:ring-0 dark:bg-transparent dark:border-0"
+        />
+      </form>
+    </div>
+  );
+}
+
 function TodoRow({
   todo,
   onToggle,
   onEdit,
   onDelete,
+  onAddSubtask,
+  onToggleSubtask,
+  onDeleteSubtask,
 }: {
   todo: Todo;
   onToggle: (todo: Todo) => void;
   onEdit: (todo: Todo) => void;
   onDelete: (todo: Todo) => void;
+  onAddSubtask: (todoId: string, title: string) => void;
+  onToggleSubtask: (subtask: Subtask) => void;
+  onDeleteSubtask: (subtask: Subtask) => void;
 }) {
   const today = todayKey();
   const key = dueDayKey(todo);
   const overdue = !todo.completed && !!key && key < today;
   const dueToday = !todo.completed && key === today;
+  // Checklist expansion is local per row (rows are keyed by todo id, so it
+  // survives refetches while the row stays mounted).
+  const [expanded, setExpanded] = React.useState(false);
+  const subtaskTotal = todo.subtasks.length;
+  const subtaskDone = todo.subtasks.filter((s) => s.completed).length;
+  const allSubtasksDone = subtaskTotal > 0 && subtaskDone === subtaskTotal;
+  const toggleExpanded = () => setExpanded((v) => !v);
 
   return (
     <div
@@ -340,6 +478,60 @@ function TodoRow({
         >
           <PriorityBadge priority={todo.priority} />
           <CategoryBadge category={todo.category} />
+          {subtaskTotal > 0 ? (
+            <button
+              type="button"
+              onClick={toggleExpanded}
+              aria-expanded={expanded}
+              aria-label={`Checklist: ${subtaskDone} of ${subtaskTotal} ${subtaskTotal === 1 ? "step" : "steps"} done`}
+              title={`Checklist progress: ${subtaskDone}/${subtaskTotal}`}
+              className={cn(
+                "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full border px-2 text-[10px] font-medium tabular-nums transition-colors",
+                allSubtasksDone
+                  ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-700 shadow-sm dark:text-emerald-300"
+                  : "border-border bg-muted/50 text-muted-foreground hover:border-emerald-500/40 hover:bg-emerald-500/10 hover:text-emerald-700 dark:hover:text-emerald-300"
+              )}
+            >
+              <ListChecks className="size-3 shrink-0" aria-hidden="true" />
+              <span>
+                {subtaskDone}/{subtaskTotal}
+              </span>
+              <span
+                className="h-1 w-10 shrink-0 overflow-hidden rounded-full bg-muted-foreground/15"
+                aria-hidden="true"
+              >
+                <span
+                  className="block h-full rounded-full bg-emerald-500 transition-all duration-300"
+                  style={{
+                    width: `${(subtaskDone / subtaskTotal) * 100}%`,
+                  }}
+                />
+              </span>
+              <ChevronDown
+                className={cn(
+                  "size-3 shrink-0 text-muted-foreground/70 transition-transform duration-200",
+                  !expanded && "-rotate-90"
+                )}
+                aria-hidden="true"
+              />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={toggleExpanded}
+              aria-expanded={expanded}
+              aria-label={`Add a step to "${todo.title}"`}
+              title="Add a step"
+              className={cn(
+                "inline-flex h-6 shrink-0 items-center gap-1 rounded-full px-1.5 text-[10px] font-medium transition-colors",
+                expanded
+                  ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                  : "text-muted-foreground/50 hover:bg-muted/60 hover:text-muted-foreground"
+              )}
+            >
+              <ListChecks className="size-3" aria-hidden="true" />
+            </button>
+          )}
           {todo.dueDate && (
             <span
               className={cn(
@@ -366,6 +558,14 @@ function TodoRow({
             </span>
           )}
         </div>
+        {expanded && (
+          <SubtaskChecklist
+            todo={todo}
+            onAdd={onAddSubtask}
+            onToggle={onToggleSubtask}
+            onDelete={onDeleteSubtask}
+          />
+        )}
       </div>
 
       <DropdownMenu>
@@ -749,6 +949,82 @@ export function TasksView() {
     onError: () => toast.error("Couldn't clear completed tasks"),
   });
 
+  // ── Subtasks (checklist) ─────────────────────────────────────
+  // Subtasks ride along on every todo response, so invalidating ["todos"]
+  // refreshes them everywhere. They don't affect stats — no ["stats"] bust.
+  // Errors toast only; success is visible in the UI itself.
+  const invalidateTodos = React.useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ["todos"] });
+  }, [queryClient]);
+
+  const addSubtaskMutation = useMutation({
+    mutationFn: ({ todoId, title }: { todoId: string; title: string }) =>
+      subtasksApi.create(todoId, { title }),
+    onSuccess: invalidateTodos,
+    onError: (e) =>
+      toast.error(e instanceof Error ? e.message : "Couldn't add the step"),
+  });
+
+  const toggleSubtaskMutation = useMutation({
+    mutationFn: (subtask: Subtask) =>
+      subtasksApi.update(subtask.id, { completed: !subtask.completed }),
+    onMutate: async (subtask) => {
+      await queryClient.cancelQueries({ queryKey: ["todos", "full"] });
+      const prev = queryClient.getQueryData<Todo[]>(["todos", "full"]);
+      if (prev) {
+        queryClient.setQueryData<Todo[]>(
+          ["todos", "full"],
+          prev.map((t) =>
+            t.id === subtask.todoId
+              ? {
+                  ...t,
+                  subtasks: t.subtasks.map((s) =>
+                    s.id === subtask.id
+                      ? { ...s, completed: !s.completed }
+                      : s
+                  ),
+                }
+              : t
+          )
+        );
+      }
+      return { prev };
+    },
+    onError: (_e, _subtask, ctx) => {
+      if (ctx?.prev) {
+        queryClient.setQueryData(["todos", "full"], ctx.prev);
+      }
+      toast.error("Couldn't update the step");
+    },
+    onSettled: invalidateTodos,
+  });
+
+  const deleteSubtaskMutation = useMutation({
+    mutationFn: (subtask: Subtask) => subtasksApi.remove(subtask.id),
+    onMutate: async (subtask) => {
+      await queryClient.cancelQueries({ queryKey: ["todos", "full"] });
+      const prev = queryClient.getQueryData<Todo[]>(["todos", "full"]);
+      if (prev) {
+        queryClient.setQueryData<Todo[]>(
+          ["todos", "full"],
+          prev.map((t) =>
+            t.id === subtask.todoId
+              ? { ...t, subtasks: t.subtasks.filter((s) => s.id !== subtask.id) }
+              : t
+          )
+        );
+      }
+      return { prev };
+    },
+    onError: (_e, _subtask, ctx) => {
+      if (ctx?.prev) {
+        queryClient.setQueryData(["todos", "full"], ctx.prev);
+      }
+      toast.error("Couldn't delete the step");
+    },
+    onSettled: invalidateTodos,
+  });
+
   const today = todayKey();
   const tomorrow = addDaysToKey(today, 1);
 
@@ -1056,6 +1332,15 @@ export function TasksView() {
                     onToggle={(todo) => toggleMutation.mutate(todo)}
                     onEdit={setEditing}
                     onDelete={setDeleting}
+                    onAddSubtask={(todoId, title) =>
+                      addSubtaskMutation.mutate({ todoId, title })
+                    }
+                    onToggleSubtask={(subtask) =>
+                      toggleSubtaskMutation.mutate(subtask)
+                    }
+                    onDeleteSubtask={(subtask) =>
+                      deleteSubtaskMutation.mutate(subtask)
+                    }
                   />
                 ))}
               </div>
@@ -1104,6 +1389,15 @@ export function TasksView() {
                       onToggle={(todo) => toggleMutation.mutate(todo)}
                       onEdit={setEditing}
                       onDelete={setDeleting}
+                      onAddSubtask={(todoId, title) =>
+                        addSubtaskMutation.mutate({ todoId, title })
+                      }
+                      onToggleSubtask={(subtask) =>
+                        toggleSubtaskMutation.mutate(subtask)
+                      }
+                      onDeleteSubtask={(subtask) =>
+                        deleteSubtaskMutation.mutate(subtask)
+                      }
                     />
                   ))}
                 </div>

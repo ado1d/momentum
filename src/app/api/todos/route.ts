@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import type { Prisma, Todo as TodoRow } from "@prisma/client";
 import { handleApiError, json, parseOrThrow, readJsonBody } from "@/lib/server/http";
 import { toNullableDate, todoCreateSchema } from "@/lib/server/schemas";
-import { serializeTodo } from "@/lib/server/service";
+import { serializeTodo, type TodoWithSubtasks } from "@/lib/server/service";
 import { z } from "zod";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +27,10 @@ function completedTime(t: TodoRow): number {
  * For status=completed order by completedAt DESC. "all" appends completed
  * after actives.
  */
-function sortTodosForList(todos: TodoRow[], status: "active" | "completed" | "all"): TodoRow[] {
+function sortTodosForList(
+  todos: TodoWithSubtasks[],
+  status: "active" | "completed" | "all",
+): TodoWithSubtasks[] {
   if (status === "completed") {
     return todos.slice().sort((a, b) => completedTime(b) - completedTime(a));
   }
@@ -64,7 +67,10 @@ export async function GET(req: Request) {
     else if (status === "completed") where.completed = true;
     if (query.category) where.category = query.category;
 
-    const todos = await db.todo.findMany({ where });
+    const todos = await db.todo.findMany({
+      where,
+      include: { subtasks: { orderBy: { sortOrder: "asc" } } },
+    });
     return json(sortTodosForList(todos, status).map(serializeTodo));
   } catch (err) {
     return handleApiError(err);

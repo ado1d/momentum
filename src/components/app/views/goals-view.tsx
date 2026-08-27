@@ -95,18 +95,16 @@ const CATEGORY_OPTIONS = [
 
 const STATUS_FILTERS: GoalStatus[] = ["active", "completed", "archived"];
 
-const PERIOD_STYLES: Record<GoalPeriod, { badge: string; bar: string }> = {
+/** Distinct subtle tints per period (emerald / amber / teal — no violet). */
+const PERIOD_STYLES: Record<GoalPeriod, { badge: string }> = {
   daily: {
     badge: "border-emerald-500/30 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
-    bar: "bg-emerald-500",
   },
   weekly: {
     badge: "border-amber-500/30 bg-amber-500/15 text-amber-700 dark:text-amber-300",
-    bar: "bg-amber-500",
   },
   monthly: {
-    badge: "border-violet-500/30 bg-violet-500/15 text-violet-700 dark:text-violet-300",
-    bar: "bg-violet-500",
+    badge: "border-teal-500/30 bg-teal-500/15 text-teal-700 dark:text-teal-300",
   },
 };
 
@@ -190,6 +188,7 @@ interface GoalCardProps {
   goal: Goal;
   today: string;
   changing: boolean;
+  celebrating: boolean;
   onIncrement: (goal: Goal, delta: number) => void;
   onEdit: (goal: Goal) => void;
   onMarkComplete: (goal: Goal) => void;
@@ -201,6 +200,7 @@ function GoalCard({
   goal,
   today,
   changing,
+  celebrating,
   onIncrement,
   onEdit,
   onMarkComplete,
@@ -218,7 +218,8 @@ function GoalCard({
     <Card
       className={cn(
         "press rounded-2xl py-0 shadow-card transition-all duration-300 hover:shadow-md hover:-translate-y-0.5",
-        completed && "border-emerald-500/40 bg-emerald-500/[0.05]",
+        celebrating && "celebrate",
+        completed && "border-emerald-500/40 bg-emerald-500/[0.05] opacity-90",
         archived && "opacity-70"
       )}
     >
@@ -240,7 +241,8 @@ function GoalCard({
                 className={cn(
                   "min-w-0 text-sm font-semibold sm:text-base",
                   goal.progress >= goal.target && "text-emerald-700 dark:text-emerald-300",
-                  archived && "text-muted-foreground"
+                  completed && "line-through decoration-emerald-500/60",
+                  archived && "text-muted-foreground line-through decoration-muted-foreground/40"
                 )}
               >
                 {goal.title}
@@ -326,7 +328,10 @@ function GoalCard({
           <ProgressBar
             value={pct}
             className="h-2.5"
-            barClassName={PERIOD_STYLES[goal.period].bar}
+            barClassName={cn(
+              "bg-gradient-to-r from-emerald-500 to-teal-500 dark:from-emerald-400 dark:to-teal-400",
+              !completed && !archived && "bar-shimmer"
+            )}
           />
           <div className="mt-2.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
             <div className="min-w-0 text-xs text-muted-foreground">
@@ -631,9 +636,19 @@ export function GoalsView() {
   const [editingGoal, setEditingGoal] = React.useState<Goal | null>(null);
   const [goalToDelete, setGoalToDelete] = React.useState<Goal | null>(null);
   const [resetConfirm, setResetConfirm] = React.useState<GoalPeriod | null>(null);
+  /** Goal that just hit 100% — drives the one-shot .celebrate pulse. */
+  const [celebrateId, setCelebrateId] = React.useState<string | null>(null);
 
   const invalidate = (keys: string[]) => {
     for (const key of keys) void queryClient.invalidateQueries({ queryKey: [key] });
+  };
+
+  /** Fire the celebration pulse when a goal crosses its target. */
+  const celebrateCompletion = (goal: Goal, nextProgress: number) => {
+    if (nextProgress >= goal.target && goal.progress < goal.target) {
+      setCelebrateId(goal.id);
+      window.setTimeout(() => setCelebrateId(null), 1000);
+    }
   };
 
   // ── Mutations ──
@@ -644,12 +659,12 @@ export function GoalsView() {
     onMutate: async ({ goal, delta }) => {
       await queryClient.cancelQueries({ queryKey: ["goals"] });
       const previous = queryClient.getQueryData<Goal[]>(["goals"]);
+      const nextProgress = Math.min(Math.max(goal.progress + delta, 0), goal.target);
+      celebrateCompletion(goal, nextProgress);
       queryClient.setQueryData<Goal[]>(["goals"], (old) =>
         (old ?? []).map((g) =>
           g.id === goal.id
-            ? applyStatusRules(g, {
-                progress: Math.min(Math.max(g.progress + delta, 0), g.target),
-              })
+            ? applyStatusRules(g, { progress: nextProgress })
             : g
         )
       );
@@ -673,6 +688,7 @@ export function GoalsView() {
     onMutate: async ({ goal, patch }) => {
       await queryClient.cancelQueries({ queryKey: ["goals"] });
       const previous = queryClient.getQueryData<Goal[]>(["goals"]);
+      if (patch.progress !== undefined) celebrateCompletion(goal, patch.progress);
       queryClient.setQueryData<Goal[]>(["goals"], (old) =>
         (old ?? []).map((g) => (g.id === goal.id ? applyStatusRules(g, patch) : g))
       );
@@ -946,6 +962,7 @@ export function GoalsView() {
                   goal={goal}
                   today={today}
                   changing={changingId === goal.id}
+                  celebrating={celebrateId === goal.id}
                   onIncrement={(g, delta) => incrementGoal.mutate({ goal: g, delta })}
                   onEdit={openEditGoal}
                   onMarkComplete={(g) =>

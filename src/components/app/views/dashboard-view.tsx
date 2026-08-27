@@ -10,6 +10,7 @@ import {
   Check,
   CloudOff,
   Flame,
+  ListChecks,
   ListTodo,
   Loader2,
   Plus,
@@ -366,6 +367,8 @@ function FocusRow({
   onToggle: (todo: Todo) => void;
 }) {
   const overdue = !todo.completed && isOverdue(todo.dueDate);
+  const subtaskTotal = todo.subtasks.length;
+  const subtaskDone = todo.subtasks.filter((s) => s.completed).length;
   return (
     <div className="flex items-center gap-3 px-4 py-2.5">
       <button
@@ -417,6 +420,21 @@ function FocusRow({
         >
           <Repeat className="size-3" aria-hidden="true" />
           <span className="sr-only">Repeats {todo.repeat}</span>
+        </span>
+      )}
+      {subtaskTotal > 0 && (
+        <span
+          className="inline-flex shrink-0 items-center gap-0.5 text-[11px] font-medium tabular-nums text-muted-foreground"
+          title="Checklist progress"
+        >
+          <ListChecks className="size-3" aria-hidden="true" />
+          <span aria-hidden="true">
+            {subtaskDone}/{subtaskTotal}
+          </span>
+          <span className="sr-only">
+            Checklist: {subtaskDone} of {subtaskTotal}{" "}
+            {subtaskTotal === 1 ? "step" : "steps"} done
+          </span>
         </span>
       )}
       {todo.dueDate && (
