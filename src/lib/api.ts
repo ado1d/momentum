@@ -1,0 +1,171 @@
+// Typed API client — thin fetch wrapper with consistent error handling.
+// All endpoints live under /api/* and speak JSON.
+
+import type {
+  AppSettings,
+  DashboardStats,
+  Goal,
+  GoalInput,
+  Habit,
+  HabitInput,
+  JournalEntry,
+  JournalEntryInput,
+  Note,
+  NoteInput,
+  RoutineTask,
+  RoutineTaskInput,
+  Todo,
+  TodoInput,
+  ToggleResult,
+} from "./types";
+
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
+async function request<T>(
+  path: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const res = await fetch(path, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers ?? {}),
+    },
+    cache: "no-store",
+  });
+  let body: unknown = null;
+  try {
+    body = await res.json();
+  } catch {
+    /* no body */
+  }
+  if (!res.ok) {
+    const message =
+      body && typeof body === "object" && "error" in body
+        ? String((body as { error: unknown }).error)
+        : `Request failed (${res.status})`;
+    throw new ApiError(message, res.status);
+  }
+  return body as T;
+}
+
+const get = <T>(path: string) => request<T>(path);
+const post = <T>(path: string, data?: unknown) =>
+  request<T>(path, { method: "POST", body: JSON.stringify(data ?? {}) });
+const patch = <T>(path: string, data: unknown) =>
+  request<T>(path, { method: "PATCH", body: JSON.stringify(data) });
+const del = <T>(path: string) => request<T>(path, { method: "DELETE" });
+
+// ── Todos ────────────────────────────────────────────────────
+export const todosApi = {
+  list: (params?: { status?: "all" | "active" | "completed"; category?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.status) q.set("status", params.status);
+    if (params?.category) q.set("category", params.category);
+    const qs = q.toString();
+    return get<Todo[]>(`/api/todos${qs ? `?${qs}` : ""}`);
+  },
+  create: (input: TodoInput) => post<Todo>("/api/todos", input),
+  update: (id: string, patchBody: Partial<TodoInput> & { completed?: boolean }) =>
+    patch<Todo>(`/api/todos/${id}`, patchBody),
+  remove: (id: string) => del<{ ok: boolean }>(`/api/todos/${id}`),
+  clearCompleted: () => post<{ ok: boolean }>("/api/todos/clear-completed"),
+};
+
+// ── Habits ───────────────────────────────────────────────────
+export const habitsApi = {
+  list: () => get<Habit[]>("/api/habits"),
+  create: (input: HabitInput) => post<Habit>("/api/habits", input),
+  update: (id: string, patchBody: Partial<HabitInput> & { archived?: boolean }) =>
+    patch<Habit>(`/api/habits/${id}`, patchBody),
+  remove: (id: string) => del<{ ok: boolean }>(`/api/habits/${id}`),
+  toggle: (id: string, date: string) =>
+    post<ToggleResult>(`/api/habits/${id}/toggle`, { date }),
+};
+
+// ── Routine ──────────────────────────────────────────────────
+export const routineApi = {
+  list: () => get<RoutineTask[]>("/api/routine"),
+  create: (input: RoutineTaskInput) => post<RoutineTask>("/api/routine", input),
+  update: (id: string, patchBody: Partial<RoutineTaskInput> & { archived?: boolean }) =>
+    patch<RoutineTask>(`/api/routine/${id}`, patchBody),
+  remove: (id: string) => del<{ ok: boolean }>(`/api/routine/${id}`),
+  toggle: (id: string, date: string) =>
+    post<ToggleResult>(`/api/routine/${id}/toggle`, { date }),
+};
+
+// ── Notes ────────────────────────────────────────────────────
+export const notesApi = {
+  list: () => get<Note[]>("/api/notes"),
+  create: (input: NoteInput) => post<Note>("/api/notes", input),
+  update: (id: string, patchBody: Partial<NoteInput>) =>
+    patch<Note>(`/api/notes/${id}`, patchBody),
+  remove: (id: string) => del<{ ok: boolean }>(`/api/notes/${id}`),
+};
+
+// ── Journal ──────────────────────────────────────────────────
+export const journalApi = {
+  list: (params?: { limit?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.limit) q.set("limit", String(params.limit));
+    const qs = q.toString();
+    return get<JournalEntry[]>(`/api/journal${qs ? `?${qs}` : ""}`);
+  },
+  get: (date: string) => get<JournalEntry | null>(`/api/journal/${date}`),
+  upsert: (input: JournalEntryInput) => post<JournalEntry>("/api/journal", input),
+  remove: (id: string) => del<{ ok: boolean }>(`/api/journal/${id}`),
+};
+
+// ── Goals ────────────────────────────────────────────────────
+export const goalsApi = {
+  list: (params?: { status?: string; period?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.status) q.set("status", params.status);
+    if (params?.period) q.set("period", params.period);
+    const qs = q.toString();
+    return get<Goal[]>(`/api/goals${qs ? `?${qs}` : ""}`);
+  },
+  create: (input: GoalInput) => post<Goal>("/api/goals", input),
+  update: (
+    id: string,
+    patchBody: Partial<GoalInput> & { progress?: number; status?: string }
+  ) => patch<Goal>(`/api/goals/${id}`, patchBody),
+  increment: (id: string, delta: number) =>
+    post<Goal>(`/api/goals/${id}/progress`, { delta }),
+  remove: (id: string) => del<{ ok: boolean }>(`/api/goals/${id}`),
+  resetPeriodProgress: () => post<{ ok: boolean }>("/api/goals/reset-period"),
+};
+
+// ── Stats / Dashboard ────────────────────────────────────────
+export const statsApi = {
+  dashboard: () => get<DashboardStats>("/api/stats"),
+};
+
+// ── Settings ─────────────────────────────────────────────────
+export const settingsApi = {
+  get: () => get<AppSettings>("/api/settings"),
+  update: (patchBody: Partial<AppSettings>) =>
+    patch<AppSettings>("/api/settings", patchBody),
+};
+
+// ── Export ───────────────────────────────────────────────────
+export const exportApi = {
+  markdown: (scope: string) =>
+    fetch(`/api/export?format=markdown&scope=${encodeURIComponent(scope)}`).then(
+      async (r) => {
+        if (!r.ok) throw new ApiError("Export failed", r.status);
+        return r.text();
+      }
+    ),
+  json: () =>
+    fetch("/api/export?format=json&scope=all").then(async (r) => {
+      if (!r.ok) throw new ApiError("Export failed", r.status);
+      return r.text();
+    }),
+};

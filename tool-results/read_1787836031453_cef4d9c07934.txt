@@ -1,0 +1,1038 @@
+     1→"use client";
+     2→
+     3→import * as React from "react";
+     4→import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+     5→import { toast } from "sonner";
+     6→import {
+     7→  Archive,
+     8→  ArchiveRestore,
+     9→  CalendarDays,
+    10→  CircleCheck,
+    11→  Ellipsis,
+    12→  Minus,
+    13→  Pencil,
+    14→  Plus,
+    15→  RotateCcw,
+    16→  Target,
+    17→  Trash2,
+    18→  TriangleAlert,
+    19→} from "lucide-react";
+    20→
+    21→import { Button } from "@/components/ui/button";
+    22→import {
+    23→  Card,
+    24→  CardContent,
+    25→} from "@/components/ui/card";
+    26→import {
+    27→  AlertDialog,
+    28→  AlertDialogAction,
+    29→  AlertDialogCancel,
+    30→  AlertDialogContent,
+    31→  AlertDialogDescription,
+    32→  AlertDialogFooter,
+    33→  AlertDialogHeader,
+    34→  AlertDialogTitle,
+    35→} from "@/components/ui/alert-dialog";
+    36→import {
+    37→  Dialog,
+    38→  DialogContent,
+    39→  DialogDescription,
+    40→  DialogFooter,
+    41→  DialogHeader,
+    42→  DialogTitle,
+    43→} from "@/components/ui/dialog";
+    44→import {
+    45→  DropdownMenu,
+    46→  DropdownMenuContent,
+    47→  DropdownMenuItem,
+    48→  DropdownMenuLabel,
+    49→  DropdownMenuSeparator,
+    50→  DropdownMenuTrigger,
+    51→} from "@/components/ui/dropdown-menu";
+    52→import { Input } from "@/components/ui/input";
+    53→import { Label } from "@/components/ui/label";
+    54→import {
+    55→  Select,
+    56→  SelectContent,
+    57→  SelectItem,
+    58→  SelectTrigger,
+    59→  SelectValue,
+    60→} from "@/components/ui/select";
+    61→import { Skeleton } from "@/components/ui/skeleton";
+    62→import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    63→import { Textarea } from "@/components/ui/textarea";
+    64→import { Badge } from "@/components/ui/badge";
+    65→
+    66→import { EmptyState } from "@/components/app/shared/empty-state";
+    67→import { ViewHeader } from "@/components/app/shared/view-header";
+    68→import { ProgressBar } from "@/components/app/shared/progress";
+    69→import { goalsApi } from "@/lib/api";
+    70→import {
+    71→  dateToKey,
+    72→  friendlyDay,
+    73→  todayKey,
+    74→  weekStartKey,
+    75→} from "@/lib/dates";
+    76→import {
+    77→  GOAL_PERIODS,
+    78→  type Goal,
+    79→  type GoalInput,
+    80→  type GoalPeriod,
+    81→  type GoalStatus,
+    82→} from "@/lib/types";
+    83→import { cn } from "@/lib/utils";
+    84→
+    85→// ── Constants ────────────────────────────────────────────────
+    86→
+    87→const CATEGORY_OPTIONS = [
+    88→  { value: "learning", label: "Learning", emoji: "📚" },
+    89→  { value: "fitness", label: "Fitness", emoji: "💪" },
+    90→  { value: "career", label: "Career", emoji: "💼" },
+    91→  { value: "personal", label: "Personal", emoji: "🌿" },
+    92→  { value: "finance", label: "Finance", emoji: "💰" },
+    93→  { value: "other", label: "Other", emoji: "✨" },
+    94→] as const;
+    95→
+    96→const STATUS_FILTERS: GoalStatus[] = ["active", "completed", "archived"];
+    97→
+    98→const PERIOD_STYLES: Record<GoalPeriod, { badge: string; bar: string }> = {
+    99→  daily: {
+   100→    badge: "border-emerald-500/30 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+   101→    bar: "bg-emerald-500",
+   102→  },
+   103→  weekly: {
+   104→    badge: "border-amber-500/30 bg-amber-500/15 text-amber-700 dark:text-amber-300",
+   105→    bar: "bg-amber-500",
+   106→  },
+   107→  monthly: {
+   108→    badge: "border-violet-500/30 bg-violet-500/15 text-violet-700 dark:text-violet-300",
+   109→    bar: "bg-violet-500",
+   110→  },
+   111→};
+   112→
+   113→const PERIOD_LABEL: Record<GoalPeriod, string> = {
+   114→  daily: "Daily",
+   115→  weekly: "Weekly",
+   116→  monthly: "Monthly",
+   117→};
+   118→
+   119→function categoryEmojiOf(category: string): string {
+   120→  return CATEGORY_OPTIONS.find((c) => c.value === category)?.emoji ?? "✨";
+   121→}
+   122→
+   123→/** Mirrors the server-side status rules for optimistic updates. */
+   124→function applyStatusRules(goal: Goal, patch: GoalPatch): Goal {
+   125→  const target = patch.target ?? goal.target;
+   126→  const progress =
+   127→    patch.progress !== undefined
+   128→      ? Math.min(Math.max(patch.progress, 0), target)
+   129→      : Math.min(goal.progress, target);
+   130→  let status: GoalStatus = goal.status;
+   131→  if (progress >= target) status = "completed";
+   132→  else if (patch.status !== undefined) status = patch.status as GoalStatus;
+   133→  else if (goal.status === "completed") status = "active";
+   134→  return { ...goal, ...patch, target, progress, status } as Goal;
+   135→}
+   136→
+   137→type GoalPatch = Partial<GoalInput> & { progress?: number; status?: string };
+   138→
+   139→// ── Small shared pieces ──────────────────────────────────────
+   140→
+   141→function QueryError({ onRetry }: { onRetry: () => void }) {
+   142→  return (
+   143→    <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed bg-muted/30 px-6 py-12 text-center">
+   144→      <TriangleAlert className="size-8 text-muted-foreground" aria-hidden="true" />
+   145→      <div>
+   146→        <p className="text-sm font-semibold">Something went wrong</p>
+   147→        <p className="mt-1 text-xs text-muted-foreground">
+   148→          We could not load your goals. Try again in a moment.
+   149→        </p>
+   150→      </div>
+   151→      <Button variant="outline" size="sm" onClick={onRetry}>
+   152→        Try again
+   153→      </Button>
+   154→    </div>
+   155→  );
+   156→}
+   157→
+   158→function StatChip({ label, value, hint }: { label: string; value: number; hint: string }) {
+   159→  return (
+   160→    <div
+   161→      className="rounded-2xl border bg-card px-2 py-3 text-center shadow-sm"
+   162→      title={hint}
+   163→    >
+   164→      <p className="text-xl font-bold tabular-nums sm:text-2xl">{value}</p>
+   165→      <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+   166→        {label}
+   167→      </p>
+   168→    </div>
+   169→  );
+   170→}
+   171→
+   172→function GoalsSkeleton() {
+   173→  return (
+   174→    <div className="space-y-3" aria-busy="true" aria-label="Loading goals">
+   175→      <div className="grid grid-cols-3 gap-2">
+   176→        <Skeleton className="h-[4.5rem] rounded-2xl" />
+   177→        <Skeleton className="h-[4.5rem] rounded-2xl" />
+   178→        <Skeleton className="h-[4.5rem] rounded-2xl" />
+   179→      </div>
+   180→      {[0, 1, 2].map((i) => (
+   181→        <Skeleton key={i} className="h-36 rounded-2xl" />
+   182→      ))}
+   183→    </div>
+   184→  );
+   185→}
+   186→
+   187→// ── Goal card ────────────────────────────────────────────────
+   188→
+   189→interface GoalCardProps {
+   190→  goal: Goal;
+   191→  today: string;
+   192→  changing: boolean;
+   193→  onIncrement: (goal: Goal, delta: number) => void;
+   194→  onEdit: (goal: Goal) => void;
+   195→  onMarkComplete: (goal: Goal) => void;
+   196→  onSetStatus: (goal: Goal, status: GoalStatus) => void;
+   197→  onDelete: (goal: Goal) => void;
+   198→}
+   199→
+   200→function GoalCard({
+   201→  goal,
+   202→  today,
+   203→  changing,
+   204→  onIncrement,
+   205→  onEdit,
+   206→  onMarkComplete,
+   207→  onSetStatus,
+   208→  onDelete,
+   209→}: GoalCardProps) {
+   210→  const pct =
+   211→    goal.target > 0 ? Math.min(100, Math.round((goal.progress / goal.target) * 100)) : 0;
+   212→  const completed = goal.status === "completed";
+   213→  const archived = goal.status === "archived";
+   214→  const overdue =
+   215→    goal.status === "active" && goal.endDate !== null && goal.endDate < today;
+   216→
+   217→  return (
+   218→    <Card
+   219→      className={cn(
+   220→        "rounded-2xl py-0 shadow-sm transition-all duration-300 hover:shadow-md",
+   221→        completed && "border-emerald-500/40 bg-emerald-500/[0.05]",
+   222→        archived && "opacity-70"
+   223→      )}
+   224→    >
+   225→      <CardContent className="p-4 sm:p-5">
+   226→        <div className="flex items-start gap-3">
+   227→          <div
+   228→            className={cn(
+   229→              "flex size-10 shrink-0 items-center justify-center rounded-xl text-lg",
+   230→              completed ? "bg-emerald-500/15" : "bg-muted"
+   231→            )}
+   232→            aria-hidden="true"
+   233→          >
+   234→            {categoryEmojiOf(goal.category)}
+   235→          </div>
+   236→
+   237→          <div className="min-w-0 flex-1">
+   238→            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+   239→              <h3
+   240→                className={cn(
+   241→                  "min-w-0 text-sm font-semibold sm:text-base",
+   242→                  goal.progress >= goal.target && "text-emerald-700 dark:text-emerald-300",
+   243→                  archived && "text-muted-foreground"
+   244→                )}
+   245→              >
+   246→                {goal.title}
+   247→              </h3>
+   248→              <Badge
+   249→                variant="outline"
+   250→                className={cn(
+   251→                  "rounded-full px-2 py-0 text-[10px] font-semibold uppercase tracking-wide",
+   252→                  PERIOD_STYLES[goal.period].badge
+   253→                )}
+   254→              >
+   255→                {goal.period}
+   256→              </Badge>
+   257→              {completed && (
+   258→                <Badge
+   259→                  className={cn(
+   260→                    "gap-1 rounded-full px-2 py-0 text-[10px] font-semibold uppercase tracking-wide",
+   261→                    PERIOD_STYLES[goal.period].badge
+   262→                  )}
+   263→                >
+   264→                  <CircleCheck className="size-3" aria-hidden="true" />
+   265→                  Done
+   266→                </Badge>
+   267→              )}
+   268→              {archived && (
+   269→                <Badge
+   270→                  variant="secondary"
+   271→                  className="rounded-full px-2 py-0 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
+   272→                >
+   273→                  Archived
+   274→                </Badge>
+   275→              )}
+   276→            </div>
+   277→            {goal.description && (
+   278→              <p className="mt-1 line-clamp-1 text-xs text-muted-foreground sm:text-sm">
+   279→                {goal.description}
+   280→              </p>
+   281→            )}
+   282→          </div>
+   283→
+   284→          <DropdownMenu>
+   285→            <DropdownMenuTrigger asChild>
+   286→              <Button
+   287→                variant="ghost"
+   288→                size="icon"
+   289→                className="size-11 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
+   290→                aria-label={`Options for ${goal.title}`}
+   291→              >
+   292→                <Ellipsis className="size-5" aria-hidden="true" />
+   293→              </Button>
+   294→            </DropdownMenuTrigger>
+   295→            <DropdownMenuContent align="end" className="w-48">
+   296→              <DropdownMenuItem onSelect={() => onEdit(goal)}>
+   297→                <Pencil aria-hidden="true" /> Edit
+   298→              </DropdownMenuItem>
+   299→              {!completed && (
+   300→                <DropdownMenuItem onSelect={() => onMarkComplete(goal)}>
+   301→                  <CircleCheck aria-hidden="true" /> Mark complete
+   302→                </DropdownMenuItem>
+   303→              )}
+   304→              <DropdownMenuItem
+   305→                onSelect={() => onSetStatus(goal, archived ? "active" : "archived")}
+   306→              >
+   307→                {archived ? (
+   308→                  <>
+   309→                    <ArchiveRestore aria-hidden="true" /> Unarchive
+   310→                  </>
+   311→                ) : (
+   312→                  <>
+   313→                    <Archive aria-hidden="true" /> Archive
+   314→                  </>
+   315→                )}
+   316→              </DropdownMenuItem>
+   317→              <DropdownMenuSeparator />
+   318→              <DropdownMenuItem variant="destructive" onSelect={() => onDelete(goal)}>
+   319→                <Trash2 aria-hidden="true" /> Delete
+   320→              </DropdownMenuItem>
+   321→            </DropdownMenuContent>
+   322→          </DropdownMenu>
+   323→        </div>
+   324→
+   325→        <div className="mt-4">
+   326→          <ProgressBar
+   327→            value={pct}
+   328→            className="h-2.5"
+   329→            barClassName={PERIOD_STYLES[goal.period].bar}
+   330→          />
+   331→          <div className="mt-2.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+   332→            <div className="min-w-0 text-xs text-muted-foreground">
+   333→              <p>
+   334→                <span className="font-semibold tabular-nums text-foreground">
+   335→                  {goal.progress}
+   336→                </span>
+   337→                <span className="tabular-nums"> / {goal.target}</span>
+   338→                {goal.unit ? ` ${goal.unit}` : ""}
+   339→                <span className="mx-1.5" aria-hidden="true">
+   340→                  ·
+   341→                </span>
+   342→                <span className="tabular-nums">{pct}%</span>
+   343→              </p>
+   344→              {goal.endDate && (
+   345→                <p
+   346→                  className={cn(
+   347→                    "mt-0.5 inline-flex items-center gap-1",
+   348→                    overdue && "font-medium text-destructive"
+   349→                  )}
+   350→                >
+   351→                  <CalendarDays className="size-3.5" aria-hidden="true" />
+   352→                  Due {friendlyDay(goal.endDate)}
+   353→                </p>
+   354→              )}
+   355→            </div>
+   356→            <div className="flex items-center gap-2">
+   357→              <Button
+   358→                variant="outline"
+   359→                size="icon"
+   360→                className="size-11 rounded-full"
+   361→                disabled={changing || goal.progress <= 0}
+   362→                onClick={() => onIncrement(goal, -1)}
+   363→                aria-label={`Decrease progress for ${goal.title}`}
+   364→              >
+   365→                <Minus aria-hidden="true" />
+   366→              </Button>
+   367→              <Button
+   368→                variant="outline"
+   369→                size="icon"
+   370→                className="size-11 rounded-full"
+   371→                disabled={changing || goal.progress >= goal.target}
+   372→                onClick={() => onIncrement(goal, 1)}
+   373→                aria-label={`Increase progress for ${goal.title}`}
+   374→              >
+   375→                <Plus aria-hidden="true" />
+   376→              </Button>
+   377→            </div>
+   378→          </div>
+   379→        </div>
+   380→      </CardContent>
+   381→    </Card>
+   382→  );
+   383→}
+   384→
+   385→// ── Goal form dialog ─────────────────────────────────────────
+   386→
+   387→interface GoalFormValues {
+   388→  title: string;
+   389→  description: string;
+   390→  category: string;
+   391→  period: GoalPeriod;
+   392→  target: string;
+   393→  unit: string;
+   394→  startDate: string;
+   395→  endDate: string;
+   396→}
+   397→
+   398→function emptyGoalForm(): GoalFormValues {
+   399→  return {
+   400→    title: "",
+   401→    description: "",
+   402→    category: "learning",
+   403→    period: "daily",
+   404→    target: "10",
+   405→    unit: "",
+   406→    startDate: todayKey(),
+   407→    endDate: "",
+   408→  };
+   409→}
+   410→
+   411→function goalToForm(goal: Goal): GoalFormValues {
+   412→  return {
+   413→    title: goal.title,
+   414→    description: goal.description ?? "",
+   415→    category: goal.category,
+   416→    period: goal.period,
+   417→    target: String(goal.target),
+   418→    unit: goal.unit ?? "",
+   419→    startDate: goal.startDate,
+   420→    endDate: goal.endDate ?? "",
+   421→  };
+   422→}
+   423→
+   424→interface GoalFormDialogProps {
+   425→  open: boolean;
+   426→  onOpenChange: (open: boolean) => void;
+   427→  goal: Goal | null;
+   428→  submitting: boolean;
+   429→  onSubmit: (values: GoalFormValues) => void;
+   430→}
+   431→
+   432→function GoalFormDialog({ open, onOpenChange, goal, submitting, onSubmit }: GoalFormDialogProps) {
+   433→  const [values, setValues] = React.useState<GoalFormValues>(emptyGoalForm);
+   434→
+   435→  React.useEffect(() => {
+   436→    if (open) setValues(goal ? goalToForm(goal) : emptyGoalForm());
+   437→  }, [open, goal]);
+   438→
+   439→  const set = <K extends keyof GoalFormValues>(key: K, value: GoalFormValues[K]) =>
+   440→    setValues((prev) => ({ ...prev, [key]: value }));
+   441→
+   442→  const submit = (e: React.FormEvent) => {
+   443→    e.preventDefault();
+   444→    if (!values.title.trim()) {
+   445→      toast.error("Give your goal a title");
+   446→      return;
+   447→    }
+   448→    const target = Number.parseInt(values.target, 10);
+   449→    if (!Number.isInteger(target) || target < 1) {
+   450→      toast.error("Target must be at least 1");
+   451→      return;
+   452→    }
+   453→    onSubmit({ ...values, title: values.title.trim(), target: String(target) });
+   454→  };
+   455→
+   456→  return (
+   457→    <Dialog open={open} onOpenChange={onOpenChange}>
+   458→      <DialogContent className="max-h-[88dvh] overflow-y-auto rounded-2xl sm:max-w-md">
+   459→        <DialogHeader>
+   460→          <DialogTitle>{goal ? "Edit goal" : "New goal"}</DialogTitle>
+   461→          <DialogDescription>
+   462→            {goal
+   463→              ? "Adjust the target, dates, or details."
+   464→              : "Choose a period and a target you can actually hit."}
+   465→          </DialogDescription>
+   466→        </DialogHeader>
+   467→
+   468→        <form onSubmit={submit} className="space-y-5">
+   469→          <div className="space-y-2">
+   470→            <Label htmlFor="goal-title">Title</Label>
+   471→            <Input
+   472→              id="goal-title"
+   473→              value={values.title}
+   474→              onChange={(e) => set("title", e.target.value)}
+   475→              placeholder="e.g. Read 10 pages daily"
+   476→              maxLength={120}
+   477→              autoFocus
+   478→            />
+   479→          </div>
+   480→
+   481→          <div className="space-y-2">
+   482→            <Label htmlFor="goal-description">
+   483→              Description <span className="font-normal text-muted-foreground">(optional)</span>
+   484→            </Label>
+   485→            <Textarea
+   486→              id="goal-description"
+   487→              value={values.description}
+   488→              onChange={(e) => set("description", e.target.value)}
+   489→              placeholder="Why does this goal matter to you?"
+   490→              rows={2}
+   491→              maxLength={400}
+   492→              className="resize-none"
+   493→            />
+   494→          </div>
+   495→
+   496→          <div className="space-y-2">
+   497→            <Label>Category</Label>
+   498→            <Select value={values.category} onValueChange={(v) => set("category", v)}>
+   499→              <SelectTrigger className="h-11 w-full rounded-xl" aria-label="Category">
+   500→                <SelectValue />
+   501→              </SelectTrigger>
+   502→              <SelectContent>
+   503→                {CATEGORY_OPTIONS.map((c) => (
+   504→                  <SelectItem key={c.value} value={c.value}>
+   505→                    {c.emoji} {c.label}
+   506→                  </SelectItem>
+   507→                ))}
+   508→              </SelectContent>
+   509→            </Select>
+   510→          </div>
+   511→
+   512→          <div className="space-y-2">
+   513→            <Label>Period</Label>
+   514→            <div className="grid grid-cols-3 gap-2">
+   515→              {GOAL_PERIODS.map((p) => (
+   516→                <button
+   517→                  key={p.value}
+   518→                  type="button"
+   519→                  onClick={() => set("period", p.value)}
+   520→                  aria-pressed={values.period === p.value}
+   521→                  className={cn(
+   522→                    "flex h-[4.25rem] flex-col items-center justify-center gap-1 rounded-xl border px-2 text-center transition-all active:scale-95",
+   523→                    "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+   524→                    values.period === p.value
+   525→                      ? "border-primary bg-primary/10 text-primary shadow-sm"
+   526→                      : "border-border text-muted-foreground hover:bg-muted/50"
+   527→                  )}
+   528→                >
+   529→                  <span className="text-sm font-semibold">{p.label}</span>
+   530→                  <span
+   531→                    className={cn(
+   532→                      "text-[10px] leading-tight",
+   533→                      values.period === p.value ? "text-primary/80" : "text-muted-foreground/70"
+   534→                    )}
+   535→                  >
+   536→                    {p.hint}
+   537→                  </span>
+   538→                </button>
+   539→              ))}
+   540→            </div>
+   541→          </div>
+   542→
+   543→          <div className="grid grid-cols-2 gap-3">
+   544→            <div className="space-y-2">
+   545→              <Label htmlFor="goal-target">Target</Label>
+   546→              <Input
+   547→                id="goal-target"
+   548→                type="number"
+   549→                min={1}
+   550→                step={1}
+   551→                inputMode="numeric"
+   552→                value={values.target}
+   553→                onChange={(e) => set("target", e.target.value)}
+   554→                className="h-11 rounded-xl tabular-nums"
+   555→              />
+   556→            </div>
+   557→            <div className="space-y-2">
+   558→              <Label htmlFor="goal-unit">
+   559→                Unit <span className="font-normal text-muted-foreground">(optional)</span>
+   560→              </Label>
+   561→              <Input
+   562→                id="goal-unit"
+   563→                value={values.unit}
+   564→                onChange={(e) => set("unit", e.target.value)}
+   565→                placeholder="pages, minutes…"
+   566→                maxLength={24}
+   567→                className="h-11 rounded-xl"
+   568→              />
+   569→            </div>
+   570→          </div>
+   571→
+   572→          <div className="grid grid-cols-2 gap-3">
+   573→            <div className="space-y-2">
+   574→              <Label htmlFor="goal-start">Start date</Label>
+   575→              <Input
+   576→                id="goal-start"
+   577→                type="date"
+   578→                value={values.startDate}
+   579→                onChange={(e) => set("startDate", e.target.value)}
+   580→                className="h-11 rounded-xl"
+   581→              />
+   582→            </div>
+   583→            <div className="space-y-2">
+   584→              <Label htmlFor="goal-end">
+   585→                End date <span className="font-normal text-muted-foreground">(optional)</span>
+   586→              </Label>
+   587→              <Input
+   588→                id="goal-end"
+   589→                type="date"
+   590→                value={values.endDate}
+   591→                onChange={(e) => set("endDate", e.target.value)}
+   592→                min={values.startDate || undefined}
+   593→                className="h-11 rounded-xl"
+   594→              />
+   595→            </div>
+   596→          </div>
+   597→
+   598→          <DialogFooter className="pt-1">
+   599→            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+   600→              Cancel
+   601→            </Button>
+   602→            <Button type="submit" disabled={submitting}>
+   603→              {goal ? "Save changes" : "Create goal"}
+   604→            </Button>
+   605→          </DialogFooter>
+   606→        </form>
+   607→      </DialogContent>
+   608→    </Dialog>
+   609→  );
+   610→}
+   611→
+   612→// ── Main view ────────────────────────────────────────────────
+   613→
+   614→type PeriodTab = "all" | GoalPeriod;
+   615→type StatusFilter = GoalStatus | "all";
+   616→
+   617→export function GoalsView() {
+   618→  const today = todayKey();
+   619→  const queryClient = useQueryClient();
+   620→
+   621→  const goalsQuery = useQuery({
+   622→    queryKey: ["goals"],
+   623→    queryFn: () => goalsApi.list({ status: "all" }),
+   624→  });
+   625→  const goals = goalsQuery.data ?? [];
+   626→
+   627→  const [periodTab, setPeriodTab] = React.useState<PeriodTab>("all");
+   628→  const [statusFilter, setStatusFilter] = React.useState<StatusFilter>("active");
+   629→
+   630→  const [dialogOpen, setDialogOpen] = React.useState(false);
+   631→  const [editingGoal, setEditingGoal] = React.useState<Goal | null>(null);
+   632→  const [goalToDelete, setGoalToDelete] = React.useState<Goal | null>(null);
+   633→  const [resetConfirm, setResetConfirm] = React.useState<GoalPeriod | null>(null);
+   634→
+   635→  const invalidate = (keys: string[]) => {
+   636→    for (const key of keys) void queryClient.invalidateQueries({ queryKey: [key] });
+   637→  };
+   638→
+   639→  // ── Mutations ──
+   640→
+   641→  const incrementGoal = useMutation({
+   642→    mutationFn: ({ goal, delta }: { goal: Goal; delta: number }) =>
+   643→      goalsApi.increment(goal.id, delta),
+   644→    onMutate: async ({ goal, delta }) => {
+   645→      await queryClient.cancelQueries({ queryKey: ["goals"] });
+   646→      const previous = queryClient.getQueryData<Goal[]>(["goals"]);
+   647→      queryClient.setQueryData<Goal[]>(["goals"], (old) =>
+   648→        (old ?? []).map((g) =>
+   649→          g.id === goal.id
+   650→            ? applyStatusRules(g, {
+   651→                progress: Math.min(Math.max(g.progress + delta, 0), g.target),
+   652→              })
+   653→            : g
+   654→        )
+   655→      );
+   656→      return { previous };
+   657→    },
+   658→    onError: (error, _vars, context) => {
+   659→      if (context?.previous) queryClient.setQueryData(["goals"], context.previous);
+   660→      toast.error(error.message || "Could not update progress");
+   661→    },
+   662→    onSuccess: (updated, { goal }) => {
+   663→      if (updated.progress >= updated.target && goal.progress < goal.target) {
+   664→        toast.success("🎉 Goal completed!");
+   665→      }
+   666→    },
+   667→    onSettled: () => invalidate(["goals", "stats"]),
+   668→  });
+   669→
+   670→  const patchGoal = useMutation({
+   671→    mutationFn: (vars: { goal: Goal; patch: GoalPatch; successToast?: string }) =>
+   672→      goalsApi.update(vars.goal.id, vars.patch),
+   673→    onMutate: async ({ goal, patch }) => {
+   674→      await queryClient.cancelQueries({ queryKey: ["goals"] });
+   675→      const previous = queryClient.getQueryData<Goal[]>(["goals"]);
+   676→      queryClient.setQueryData<Goal[]>(["goals"], (old) =>
+   677→        (old ?? []).map((g) => (g.id === goal.id ? applyStatusRules(g, patch) : g))
+   678→      );
+   679→      return { previous };
+   680→    },
+   681→    onError: (error, _vars, context) => {
+   682→      if (context?.previous) queryClient.setQueryData(["goals"], context.previous);
+   683→      toast.error(error.message || "Could not update goal");
+   684→    },
+   685→    onSuccess: (_updated, vars) => {
+   686→      if (vars.successToast) toast.success(vars.successToast);
+   687→    },
+   688→    onSettled: () => invalidate(["goals", "stats"]),
+   689→  });
+   690→
+   691→  const saveGoal = useMutation({
+   692→    mutationFn: (vars: { id?: string; input: GoalInput }) =>
+   693→      vars.id ? goalsApi.update(vars.id, vars.input) : goalsApi.create(vars.input),
+   694→    onSuccess: (_result, vars) => {
+   695→      invalidate(["goals", "stats"]);
+   696→      toast.success(vars.id ? "Goal updated" : "Goal created");
+   697→      setDialogOpen(false);
+   698→    },
+   699→    onError: (e) => toast.error(e.message || "Could not save goal"),
+   700→  });
+   701→
+   702→  const removeGoal = useMutation({
+   703→    mutationFn: (id: string) => goalsApi.remove(id),
+   704→    onSuccess: () => {
+   705→      invalidate(["goals", "stats"]);
+   706→      setGoalToDelete(null);
+   707→      toast.success("Goal deleted");
+   708→    },
+   709→    onError: (e) => toast.error(e.message || "Could not delete goal"),
+   710→  });
+   711→
+   712→  const resetPeriodProgress = useMutation({
+   713→    mutationFn: async (period: GoalPeriod) => {
+   714→      const targets = goals.filter(
+   715→        (g) => g.period === period && g.status !== "archived" && g.progress > 0
+   716→      );
+   717→      await Promise.all(targets.map((g) => goalsApi.update(g.id, { progress: 0 })));
+   718→      return targets.length;
+   719→    },
+   720→    onMutate: async (period) => {
+   721→      await queryClient.cancelQueries({ queryKey: ["goals"] });
+   722→      const previous = queryClient.getQueryData<Goal[]>(["goals"]);
+   723→      queryClient.setQueryData<Goal[]>(["goals"], (old) =>
+   724→        (old ?? []).map((g) =>
+   725→          g.period === period && g.status !== "archived"
+   726→            ? { ...g, progress: 0, status: "active" }
+   727→            : g
+   728→        )
+   729→      );
+   730→      return { previous };
+   731→    },
+   732→    onError: (error, _period, context) => {
+   733→      if (context?.previous) queryClient.setQueryData(["goals"], context.previous);
+   734→      toast.error(error.message || "Could not reset progress");
+   735→    },
+   736→    onSuccess: (count, period) => {
+   737→      invalidate(["goals", "stats"]);
+   738→      toast.success(
+   739→        count === 0
+   740→          ? `No ${PERIOD_LABEL[period].toLowerCase()} goals to reset`
+   741→          : `${PERIOD_LABEL[period]} progress reset — ${count} goal${count === 1 ? "" : "s"} back to zero`
+   742→      );
+   743→    },
+   744→  });
+   745→
+   746→  const addSampleGoals = useMutation({
+   747→    mutationFn: async () => {
+   748→      await goalsApi.create({
+   749→        title: "Read 10 pages daily",
+   750→        category: "learning",
+   751→        period: "daily",
+   752→        target: 10,
+   753→        unit: "pages",
+   754→        startDate: todayKey(),
+   755→      });
+   756→      await goalsApi.create({
+   757→        title: "Complete 1 online course module",
+   758→        category: "learning",
+   759→        period: "weekly",
+   760→        target: 3,
+   761→        unit: "modules",
+   762→        startDate: todayKey(),
+   763→      });
+   764→    },
+   765→    onSuccess: () => {
+   766→      invalidate(["goals", "stats"]);
+   767→      toast.success("Sample goals added 🎯");
+   768→    },
+   769→    onError: (e) => toast.error(e.message || "Could not add sample goals"),
+   770→  });
+   771→
+   772→  // ── Derived data ──
+   773→
+   774→  const activeCount = goals.filter((g) => g.status === "active").length;
+   775→  const completedCount = goals.filter((g) => g.status === "completed").length;
+   776→  const weekStart = weekStartKey(today);
+   777→  const completedThisWeek = goals.filter(
+   778→    (g) => g.status === "completed" && dateToKey(new Date(g.updatedAt)) >= weekStart
+   779→  ).length;
+   780→
+   781→  const filtered = goals.filter(
+   782→    (g) =>
+   783→      (periodTab === "all" || g.period === periodTab) &&
+   784→      (statusFilter === "all" || g.status === statusFilter)
+   785→  );
+   786→
+   787→  const openNewGoal = () => {
+   788→    setEditingGoal(null);
+   789→    setDialogOpen(true);
+   790→  };
+   791→  const openEditGoal = (goal: Goal) => {
+   792→    setEditingGoal(goal);
+   793→    setDialogOpen(true);
+   794→  };
+   795→
+   796→  const submitGoal = (values: GoalFormValues) => {
+   797→    saveGoal.mutate({
+   798→      id: editingGoal?.id,
+   799→      input: {
+   800→        title: values.title,
+   801→        description: values.description.trim() || null,
+   802→        category: values.category,
+   803→        period: values.period,
+   804→        target: Number.parseInt(values.target, 10),
+   805→        unit: values.unit.trim() || null,
+   806→        startDate: values.startDate || todayKey(),
+   807→        endDate: values.endDate || null,
+   808→      },
+   809→    });
+   810→  };
+   811→
+   812→  const changingId =
+   813→    incrementGoal.isPending ? incrementGoal.variables?.goal.id : undefined;
+   814→
+   815→  return (
+   816→    <div>
+   817→      <ViewHeader
+   818→        title="Goals"
+   819→        subtitle="Daily learning goals, weekly targets, monthly ambitions"
+   820→        actions={
+   821→          <>
+   822→            <DropdownMenu>
+   823→              <DropdownMenuTrigger asChild>
+   824→                <Button
+   825→                  variant="outline"
+   826→                  size="sm"
+   827→                  className="h-11 rounded-xl"
+   828→                  aria-label="Reset progress"
+   829→                >
+   830→                  <RotateCcw aria-hidden="true" />
+   831→                  Reset
+   832→                </Button>
+   833→              </DropdownMenuTrigger>
+   834→              <DropdownMenuContent align="end" className="w-52">
+   835→                <DropdownMenuLabel>Set progress back to zero</DropdownMenuLabel>
+   836→                {GOAL_PERIODS.map((p) => (
+   837→                  <DropdownMenuItem key={p.value} onSelect={() => setResetConfirm(p.value)}>
+   838→                    <RotateCcw aria-hidden="true" /> Reset {p.label.toLowerCase()} progress
+   839→                  </DropdownMenuItem>
+   840→                ))}
+   841→              </DropdownMenuContent>
+   842→            </DropdownMenu>
+   843→            <Button size="sm" className="h-11 rounded-xl" onClick={openNewGoal}>
+   844→              <Plus aria-hidden="true" />
+   845→              New goal
+   846→            </Button>
+   847→          </>
+   848→        }
+   849→      />
+   850→
+   851→      {goalsQuery.isLoading ? (
+   852→        <GoalsSkeleton />
+   853→      ) : goalsQuery.isError ? (
+   854→        <QueryError onRetry={() => goalsQuery.refetch()} />
+   855→      ) : (
+   856→        <div className="space-y-4">
+   857→          {/* Summary strip */}
+   858→          <div className="grid grid-cols-3 gap-2 sm:gap-3">
+   859→            <StatChip label="Active" value={activeCount} hint="Goals currently in progress" />
+   860→            <StatChip label="Completed" value={completedCount} hint="Completed all time" />
+   861→            <StatChip
+   862→              label="This week"
+   863→              value={completedThisWeek}
+   864→              hint="Completed this calendar week"
+   865→            />
+   866→          </div>
+   867→
+   868→          {/* Filters */}
+   869→          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+   870→            <Tabs
+   871→              value={periodTab}
+   872→              onValueChange={(v) => setPeriodTab(v as PeriodTab)}
+   873→            >
+   874→              <TabsList className="h-11 rounded-xl p-1">
+   875→                <TabsTrigger value="all" className="px-3 text-sm">
+   876→                  All
+   877→                </TabsTrigger>
+   878→                {GOAL_PERIODS.map((p) => (
+   879→                  <TabsTrigger key={p.value} value={p.value} className="px-3 text-sm">
+   880→                    {p.label}
+   881→                  </TabsTrigger>
+   882→                ))}
+   883→              </TabsList>
+   884→            </Tabs>
+   885→            <div
+   886→              className="flex items-center gap-1.5"
+   887→              role="group"
+   888→              aria-label="Filter goals by status"
+   889→            >
+   890→              {STATUS_FILTERS.map((status) => (
+   891→                <button
+   892→                  key={status}
+   893→                  type="button"
+   894→                  onClick={() =>
+   895→                    setStatusFilter((current) => (current === status ? "all" : status))
+   896→                  }
+   897→                  aria-pressed={statusFilter === status}
+   898→                  className={cn(
+   899→                    "h-11 rounded-full border px-3.5 text-xs font-medium capitalize transition-all active:scale-95",
+   900→                    "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+   901→                    statusFilter === status
+   902→                      ? "border-primary bg-primary/10 text-primary shadow-sm"
+   903→                      : "border-border bg-card text-muted-foreground hover:bg-muted/50"
+   904→                  )}
+   905→                >
+   906→                  {status}
+   907→                </button>
+   908→              ))}
+   909→            </div>
+   910→          </div>
+   911→
+   912→          {/* Goal list */}
+   913→          {goals.length === 0 ? (
+   914→            <EmptyState
+   915→              icon={Target}
+   916→              title="No goals yet"
+   917→              description="Set a daily, weekly, or monthly target and watch the progress add up."
+   918→              actionLabel="Set a goal"
+   919→              onAction={openNewGoal}
+   920→              secondaryLabel={addSampleGoals.isPending ? "Adding…" : "Add sample learning goals"}
+   921→              onSecondary={() => addSampleGoals.mutate()}
+   922→            />
+   923→          ) : filtered.length === 0 ? (
+   924→            <div className="rounded-2xl border border-dashed bg-muted/30 px-6 py-10 text-center">
+   925→              <p className="text-sm font-medium">No goals match these filters</p>
+   926→              <p className="mt-1 text-xs text-muted-foreground">
+   927→                Try a different period or status.
+   928→              </p>
+   929→              <Button
+   930→                variant="outline"
+   931→                size="sm"
+   932→                className="mt-4"
+   933→                onClick={() => {
+   934→                  setPeriodTab("all");
+   935→                  setStatusFilter("all");
+   936→                }}
+   937→              >
+   938→                Clear filters
+   939→              </Button>
+   940→            </div>
+   941→          ) : (
+   942→            <ul className="space-y-3">
+   943→              {filtered.map((goal) => (
+   944→                <GoalCard
+   945→                  key={goal.id}
+   946→                  goal={goal}
+   947→                  today={today}
+   948→                  changing={changingId === goal.id}
+   949→                  onIncrement={(g, delta) => incrementGoal.mutate({ goal: g, delta })}
+   950→                  onEdit={openEditGoal}
+   951→                  onMarkComplete={(g) =>
+   952→                    patchGoal.mutate({
+   953→                      goal: g,
+   954→                      patch: { progress: g.target },
+   955→                      successToast: "🎉 Goal completed!",
+   956→                    })
+   957→                  }
+   958→                  onSetStatus={(g, status) =>
+   959→                    patchGoal.mutate({
+   960→                      goal: g,
+   961→                      patch: { status },
+   962→                      successToast: status === "archived" ? "Goal archived" : "Goal restored",
+   963→                    })
+   964→                  }
+   965→                  onDelete={setGoalToDelete}
+   966→                />
+   967→              ))}
+   968→            </ul>
+   969→          )}
+   970→        </div>
+   971→      )}
+   972→
+   973→      {/* ── Dialogs ── */}
+   974→      <GoalFormDialog
+   975→        open={dialogOpen}
+   976→        onOpenChange={setDialogOpen}
+   977→        goal={editingGoal}
+   978→        submitting={saveGoal.isPending}
+   979→        onSubmit={submitGoal}
+   980→      />
+   981→
+   982→      <AlertDialog
+   983→        open={resetConfirm !== null}
+   984→        onOpenChange={(open) => {
+   985→          if (!open) setResetConfirm(null);
+   986→        }}
+   987→      >
+   988→        <AlertDialogContent className="rounded-2xl">
+   989→          <AlertDialogHeader>
+   990→            <AlertDialogTitle>
+   991→              Reset {resetConfirm ? PERIOD_LABEL[resetConfirm].toLowerCase() : ""} progress?
+   992→            </AlertDialogTitle>
+   993→            <AlertDialogDescription>
+   994→              Progress for every {resetConfirm ? PERIOD_LABEL[resetConfirm].toLowerCase() : ""}{" "}
+   995→              goal goes back to zero, including completed ones. Nothing is deleted and the
+   996→              targets stay the same.
+   997→            </AlertDialogDescription>
+   998→          </AlertDialogHeader>
+   999→          <AlertDialogFooter>
+  1000→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+  1001→            <AlertDialogAction
+  1002→              onClick={() => resetConfirm && resetPeriodProgress.mutate(resetConfirm)}
+  1003→            >
+  1004→              Reset progress
+  1005→            </AlertDialogAction>
+  1006→          </AlertDialogFooter>
+  1007→        </AlertDialogContent>
+  1008→      </AlertDialog>
+  1009→
+  1010→      <AlertDialog
+  1011→        open={goalToDelete !== null}
+  1012→        onOpenChange={(open) => {
+  1013→          if (!open) setGoalToDelete(null);
+  1014→        }}
+  1015→      >
+  1016→        <AlertDialogContent className="rounded-2xl">
+  1017→          <AlertDialogHeader>
+  1018→            <AlertDialogTitle>Delete goal?</AlertDialogTitle>
+  1019→            <AlertDialogDescription>
+  1020→              &ldquo;{goalToDelete?.title}&rdquo; and its progress will be permanently removed.
+  1021→              This cannot be undone.
+  1022→            </AlertDialogDescription>
+  1023→          </AlertDialogHeader>
+  1024→          <AlertDialogFooter>
+  1025→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+  1026→            <AlertDialogAction
+  1027→              className="bg-destructive text-white hover:bg-destructive/90"
+  1028→              onClick={() => goalToDelete && removeGoal.mutate(goalToDelete.id)}
+  1029→            >
+  1030→              Delete
+  1031→            </AlertDialogAction>
+  1032→          </AlertDialogFooter>
+  1033→        </AlertDialogContent>
+  1034→      </AlertDialog>
+  1035→    </div>
+  1036→  );
+  1037→}
+  1038→
