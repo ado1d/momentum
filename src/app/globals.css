@@ -122,9 +122,30 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /* Reserve the vertical scrollbar gutter so the layout never shifts
+     when switching between scrollable and non-scrollable views. Scoped
+     to the desktop sidebar layout (≥lg): on small/overlay-scrollbar
+     viewports the reservation would eat 8px of content width instead
+     of preventing a shift. */
+  @media (min-width: 1024px) {
+    html {
+      scrollbar-gutter: stable;
+    }
+  }
   body {
     @apply bg-background text-foreground;
     -webkit-tap-highlight-color: transparent;
+  }
+  /* Unified emerald focus outline for interactive elements. Sits in the
+     base layer on purpose: any element that opts out via the
+     `outline-none` utility (every shadcn control — Button/Input/Textarea/
+     Select — and all custom app controls pair it with their own ring
+     utilities in the later `utilities` layer) overrides this rule, so
+     nothing double-rings. Elements with no focus styling at all (e.g.
+     sidebar/bottom-nav buttons, bare links) get one consistent ring. */
+  :where(a, button, [role="button"], input, textarea, select):focus-visible {
+    outline: 2px solid oklch(0.696 0.17 162.48 / 0.6);
+    outline-offset: 2px;
   }
   ::-webkit-scrollbar {
     width: 8px;
@@ -189,9 +210,12 @@
   .stagger-list > *:nth-child(7) { animation-delay: 210ms; }
   .stagger-list > *:nth-child(8) { animation-delay: 245ms; }
   .stagger-list > *:nth-child(n+9) { animation-delay: 280ms; }
-  /* Emerald-tinted text selection */
+  /* Emerald-tinted text selection (stronger tint in dark mode) */
   ::selection {
-    background: color-mix(in oklch, var(--primary) 22%, transparent);
+    background: color-mix(in oklch, var(--primary) 25%, transparent);
+  }
+  .dark ::selection {
+    background: color-mix(in oklch, var(--primary) 35%, transparent);
   }
   /* Emerald → teal gradient text (dark-mode aware) */
   .gradient-text {
@@ -243,6 +267,17 @@
       transparent,
       var(--border) 12%,
       var(--border) 88%,
+      transparent
+    );
+  }
+  /* Horizontal hairline divider that fades in from both ends */
+  .gradient-hr {
+    height: 1px;
+    background-image: linear-gradient(
+      to right,
+      transparent,
+      var(--border) 20%,
+      var(--border) 80%,
       transparent
     );
   }
@@ -475,3 +510,5 @@
 }
 
 /* 5-d polish pass — count-up, stagger, shimmer, card-lift, print */
+/* 6-d polish pass — selection tint, focus-visible unity, scrollbar-gutter,
+   gradient hairline (bump 2: turbopack stale-compile nudge) */

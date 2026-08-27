@@ -1,13 +1,15 @@
 // Focus sessions API.
 //
-// GET  /api/focus → FocusStats (today/week/last-week minutes + session counts)
+// GET  /api/focus → FocusStats (today/week/last-week minutes + session counts,
+//                    plus `recent` — the last 10 sessions by endedAt desc,
+//                    each with the linked todo's title resolved)
 // POST /api/focus { taskId?, label?, minutes, startedAt?, endedAt? } → FocusSession
 //
 // minutes is capped at a sane maximum (240) to keep the data honest;
 // startedAt/endedAt default to "now - minutes" / "now" when omitted.
 
 import { db } from "@/lib/db";
-import type { FocusSession, FocusStats } from "@/lib/types";
+import type { FocusSession, FocusStats, FocusSessionWithTask } from "@/lib/types";
 import {
   addDaysToKey,
   dayKeyOfDate,
@@ -63,6 +65,35 @@ export async function GET() {
         .filter((s) => dayKeyOfDate(s.endedAt) === key)
         .reduce((sum, s) => sum + s.minutes, 0);
 
+    // Recent sessions (last 10 by endedAt desc) with task titles resolved in
+    // a single pass — no N+1 queries.
+    const recentRows = [...sessions]
+      .sort((a, b) => b.endedAt.getTime() - a.endedAt.getTime())
+      .slice(0, 10);
+    const taskIds = [
+      ...new Set(
+        recentRows.map((s) => s.taskId).filter((id): id is string => id !== null),
+      ),
+    ];
+    const tasks =
+      taskIds.length > 0
+        ? await db.todo.findMany({
+            where: { id: { in: taskIds } },
+            select: { id: true, title: true },
+          })
+        : [];
+    const titleById = new Map(tasks.map((t) => [t.id, t.title]));
+
+    const recent: FocusSessionWithTask[] = recentRows.map((s) => ({
+      id: s.id,
+      minutes: s.minutes,
+      startedAt: s.startedAt.toISOString(),
+      endedAt: s.endedAt.toISOString(),
+      label: s.label,
+      taskId: s.taskId,
+      taskTitle: s.taskId !== null ? titleById.get(s.taskId) ?? null : null,
+    }));
+
     const stats: FocusStats = {
       todayMinutes: minutesOn(today),
       weekMinutes: Array.from({ length: 7 }, (_, i) => addDaysToKey(weekStart, i)).reduce(
@@ -77,6 +108,7 @@ export async function GET() {
         .reduce((sum, s) => sum + s.minutes, 0),
       totalSessions: sessions.length,
       todaySessions: sessions.filter((s) => dayKeyOfDate(s.endedAt) === today).length,
+      recent,
     };
     return json(stats);
   } catch (err) {

@@ -19,12 +19,14 @@ import { useTheme } from "next-themes";
 import {
   Brain,
   Check,
+  CheckCircle2,
   ChevronDown,
   ChevronUp,
   Clock,
   CloudOff,
   Coffee,
   Flame,
+  History,
   ListChecks,
   Pause,
   PenLine,
@@ -40,12 +42,23 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
+import { format, formatDistanceToNow, isValid } from "date-fns";
 import { ApiError, focusApi, todosApi } from "@/lib/api";
 import { formatTime, todayKey } from "@/lib/dates";
 import { useUiStore } from "@/lib/store";
-import type { FocusSessionInput, Todo } from "@/lib/types";
+import type {
+  FocusSessionInput,
+  FocusSessionWithTask,
+  Todo,
+} from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { Card, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -350,6 +363,63 @@ function TaskChip({
   );
 }
 
+/** One row of the recent-sessions list — newest first, newest 10 only. */
+function RecentSessionRow({
+  session,
+  stagger,
+}: {
+  session: FocusSessionWithTask;
+  stagger?: number;
+}) {
+  const ended = new Date(session.endedAt);
+  const valid = isValid(ended);
+  const taskRemoved = session.taskId !== null && session.taskTitle === null;
+  const title = session.taskTitle ?? session.label ?? "Focus session";
+  const when = [
+    valid ? format(ended, "EEE, MMM d") : "",
+    valid ? formatDistanceToNow(ended, { addSuffix: true }) : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const secondary = taskRemoved ? `${when} · task removed`.trim() : when;
+
+  return (
+    <li
+      className={cn(
+        "flex items-center gap-3 rounded-lg py-2.5 transition-colors hover:bg-muted/50",
+        stagger !== undefined && "stagger-item",
+      )}
+      style={
+        stagger !== undefined
+          ? ({ "--stagger": stagger } as React.CSSProperties)
+          : undefined
+      }
+    >
+      <span
+        className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"
+        aria-hidden="true"
+      >
+        {session.taskId ? (
+          <CheckCircle2 className="size-4" />
+        ) : (
+          <Timer className="size-4" />
+        )}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium leading-snug">{title}</p>
+        {secondary && (
+          <p className="mt-0.5 truncate text-xs leading-snug text-muted-foreground">
+            {secondary}
+          </p>
+        )}
+      </div>
+      <span className="shrink-0 rounded-md bg-muted px-2 py-0.5 text-xs font-semibold tabular-nums text-muted-foreground">
+        {session.minutes} min
+      </span>
+    </li>
+  );
+}
+
 // ── Main view ──────────────────────────────────────────────────
 
 export function FocusView() {
@@ -458,6 +528,7 @@ export function FocusView() {
   const selectedTodo = taskId ? todos.find((t) => t.id === taskId) ?? null : null;
   const subject = selectedTodo ? selectedTodo.title : label;
   const stats = statsQuery.data;
+  const recent = stats?.recent ?? [];
 
   const isDark = resolvedTheme === "dark";
   const ringColor =
@@ -1147,9 +1218,64 @@ export function FocusView() {
         </section>
       </FadeIn>
 
+      {/* ── Recent sessions ─────────────────────────────────── */}
+      {!statsQuery.isError && (
+        <FadeIn delay={0.1}>
+          <Card className="rounded-2xl py-0 shadow-card">
+            <CardHeader className="p-4 pb-2 sm:p-6 sm:pb-3">
+              <CardTitle className="flex items-center gap-2.5 text-base">
+                <span
+                  className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"
+                  aria-hidden="true"
+                >
+                  <History className="size-4.5" />
+                </span>
+                Recent sessions
+              </CardTitle>
+              <CardDescription>
+                Your last 10 focus blocks, newest first.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-4 pt-2 sm:p-6 sm:pt-2">
+              {statsQuery.isLoading ? (
+                <div
+                  className="space-y-1"
+                  aria-busy="true"
+                  aria-label="Loading recent sessions"
+                >
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-3 py-2.5">
+                      <Skeleton className="size-9 shrink-0 rounded-xl" />
+                      <div className="flex-1 space-y-1.5">
+                        <Skeleton className="h-3.5 w-2/5" />
+                        <Skeleton className="h-3 w-3/5" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : recent.length === 0 ? (
+                <p className="rounded-xl border border-dashed bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+                  No sessions yet — your first focus block will appear here.
+                </p>
+              ) : (
+                <ul className="divide-y divide-border/70" aria-label="Recent focus sessions">
+                  {recent.map((s, i) => (
+                    <RecentSessionRow
+                      key={s.id}
+                      session={s}
+                      stagger={i < 8 ? i : undefined}
+                    />
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        </FadeIn>
+      )}
+
       {/* ── Onboarding ──────────────────────────────────────── */}
       {stats && stats.totalSessions === 0 && (
-        <FadeIn delay={0.1}>
+        <FadeIn delay={0.12}>
           <Card className="rounded-2xl p-5 sm:p-6">
             <div className="flex items-start gap-3">
               <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">

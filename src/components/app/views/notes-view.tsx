@@ -4,10 +4,17 @@ import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
+  Bold,
+  Code,
   Download,
   Ellipsis,
   Eye,
   FileText,
+  Italic,
+  Link as LinkIcon,
+  Link2,
+  List,
+  ListOrdered,
   Loader2,
   Pencil,
   Pin,
@@ -16,6 +23,8 @@ import {
   Printer,
   Search,
   StickyNote,
+  Strikethrough,
+  TextQuote,
   Trash2,
   TriangleAlert,
   X,
@@ -60,7 +69,7 @@ import { Textarea } from "@/components/ui/textarea";
 
 import { EmptyState } from "@/components/app/shared/empty-state";
 import { ViewHeader } from "@/components/app/shared/view-header";
-import { MarkdownContent } from "@/components/app/shared/markdown";
+import { extractWikiTitles, MarkdownContent } from "@/components/app/shared/markdown";
 import { exportApi, notesApi } from "@/lib/api";
 import { downloadMarkdown, esc, miniMarkdownToHtml, printHtml } from "@/lib/export";
 import { NOTE_COLORS, type Note, type NoteColor, type NoteInput } from "@/lib/types";
@@ -150,10 +159,11 @@ interface NoteCardProps {
   onOpen: (note: Note) => void;
   onTogglePin: (note: Note) => void;
   onDelete: (note: Note) => void;
+  onWikiLink: (title: string) => void;
   pinPending: boolean;
 }
 
-function NoteCard({ note, onOpen, onTogglePin, onDelete, pinPending }: NoteCardProps) {
+function NoteCard({ note, onOpen, onTogglePin, onDelete, onWikiLink, pinPending }: NoteCardProps) {
   return (
     <Card
       className={cn(
@@ -236,6 +246,7 @@ function NoteCard({ note, onOpen, onTogglePin, onDelete, pinPending }: NoteCardP
           <MarkdownContent
             content={note.content}
             className="mt-1.5 line-clamp-4 text-muted-foreground"
+            onWikiLink={onWikiLink}
           />
         ) : (
           <p className="mt-1.5 text-sm italic text-muted-foreground/70">Empty note</p>
@@ -256,6 +267,47 @@ function NoteCard({ note, onOpen, onTogglePin, onDelete, pinPending }: NoteCardP
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+// ── Editor formatting toolbar ───────────────────────────────
+
+function ToolbarButton({
+  label,
+  onPress,
+  emerald,
+  children,
+}: {
+  label: string;
+  onPress: () => void;
+  emerald?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      // Preventing mousedown's default keeps focus in the textarea, so
+      // the text selection is still intact when the click handler runs.
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onPress}
+      className={cn(
+        "flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 sm:size-7",
+        emerald && "hover:text-primary"
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ToolbarDivider() {
+  return (
+    <span
+      aria-hidden="true"
+      className="mx-0.5 h-4 w-px shrink-0 self-center bg-border"
+    />
   );
 }
 
@@ -287,18 +339,24 @@ interface NoteDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   note: Note | null;
+  notes: Note[];
   existingTags: string[];
   submitting: boolean;
   onSubmit: (values: NoteFormValues) => void;
+  onOpenNote: (note: Note) => void;
+  onWikiLink: (title: string) => void;
 }
 
 function NoteDialog({
   open,
   onOpenChange,
   note,
+  notes,
   existingTags,
   submitting,
   onSubmit,
+  onOpenNote,
+  onWikiLink,
 }: NoteDialogProps) {
   const [values, setValues] = React.useState<NoteFormValues>(emptyNoteForm);
   const [preview, setPreview] = React.useState(false);
@@ -312,6 +370,102 @@ function NoteDialog({
 
   const set = <K extends keyof NoteFormValues>(key: K, value: NoteFormValues[K]) =>
     setValues((prev) => ({ ...prev, [key]: value }));
+
+  // ── Formatting toolbar plumbing ──
+
+  const contentRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const pendingSelection = React.useRef<{ start: number; end: number } | null>(null);
+
+  // After a toolbar action rewrites the content, restore the selection:
+  // re-select the wrapped text, or park the caret between the markers.
+  React.useLayoutEffect(() => {
+    const el = contentRef.current;
+    const next = pendingSelection.current;
+    if (el && next) {
+      pendingSelection.current = null;
+      el.focus();
+      el.setSelectionRange(next.start, next.end);
+    }
+  }, [values.content]);
+
+  const replaceSelection = (
+    start: number,
+    end: number,
+    replacement: string,
+    selection: { start: number; end: number }
+  ) => {
+    const el = contentRef.current;
+    if (!el) return;
+    set("content", el.value.slice(0, start) + replacement + el.value.slice(end));
+    pendingSelection.current = selection;
+  };
+
+  /** Wrap the selection with a marker pair: `**sel**`, `` `sel` ``, `[[sel]]`… */
+  const wrapSelection = (open: string, close: string = open) => {
+    const el = contentRef.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const selected = el.value.slice(start, end);
+    const inner = start + open.length;
+    replaceSelection(start, end, open + selected + close, {
+      start: inner,
+      end: selected ? end + open.length : inner,
+    });
+  };
+
+  /** Wrap the selection as `[sel](url)` — the `url` placeholder ends up selected. */
+  const insertLink = () => {
+    const el = contentRef.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const selected = el.value.slice(start, end);
+    if (selected) {
+      const urlStart = start + selected.length + 3; // "[" + text + "]("
+      replaceSelection(start, end, `[${selected}](url)`, {
+        start: urlStart,
+        end: urlStart + 3,
+      });
+    } else {
+      replaceSelection(start, end, "[](url)", { start: start + 1, end: start + 1 });
+    }
+  };
+
+  /** Wrap the selection as `[[sel]]` — a link to another note. */
+  const insertNoteLink = () => {
+    wrapSelection("[[", "]]");
+  };
+
+  /** Prefix every selected line (`- `, `1. `, `> `). */
+  const prefixLines = (prefix: (index: number) => string) => {
+    const el = contentRef.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const lineStart = start === 0 ? 0 : el.value.lastIndexOf("\n", start - 1) + 1;
+    const newlineAfter = el.value.indexOf("\n", end);
+    const lineEnd = newlineAfter === -1 ? el.value.length : newlineAfter;
+    const prefixed = el.value
+      .slice(lineStart, lineEnd)
+      .split("\n")
+      .map((line, i) => prefix(i) + line)
+      .join("\n");
+    replaceSelection(lineStart, lineEnd, prefixed, {
+      start: lineStart,
+      end: lineStart + prefixed.length,
+    });
+  };
+
+  // ── Backlinks: other notes whose content contains [[current title]] ──
+
+  const backlinks = React.useMemo(() => {
+    const title = values.title.trim().toLowerCase();
+    if (!title || !note) return [];
+    return notes.filter(
+      (n) => n.id !== note.id && extractWikiTitles(n.content).includes(title)
+    );
+  }, [notes, note, values.title]);
 
   const canSubmit = values.title.trim().length > 0 || values.content.trim().length > 0;
 
@@ -375,7 +529,11 @@ function NoteDialog({
                   {values.title.trim() || "Untitled note"}
                 </p>
                 {values.content.trim() ? (
-                  <MarkdownContent content={values.content} className="mt-2" />
+                  <MarkdownContent
+                    content={values.content}
+                    className="mt-2"
+                    onWikiLink={onWikiLink}
+                  />
                 ) : (
                   <p className="mt-2 text-sm italic text-muted-foreground/70">
                     Nothing to preview yet.
@@ -384,7 +542,56 @@ function NoteDialog({
               </div>
             ) : (
               <>
+                <div
+                  role="group"
+                  aria-label="Text formatting"
+                  className="flex gap-0.5 overflow-x-auto rounded-lg border bg-muted/30 p-1"
+                >
+                  <ToolbarButton label="Bold" onPress={() => wrapSelection("**")}>
+                    <Bold className="size-3.5" aria-hidden="true" />
+                  </ToolbarButton>
+                  <ToolbarButton label="Italic" onPress={() => wrapSelection("*")}>
+                    <Italic className="size-3.5" aria-hidden="true" />
+                  </ToolbarButton>
+                  <ToolbarButton label="Strikethrough" onPress={() => wrapSelection("~~")}>
+                    <Strikethrough className="size-3.5" aria-hidden="true" />
+                  </ToolbarButton>
+                  <ToolbarButton label="Code" onPress={() => wrapSelection("`")}>
+                    <Code className="size-3.5" aria-hidden="true" />
+                  </ToolbarButton>
+                  <ToolbarDivider />
+                  <ToolbarButton
+                    label="Bulleted list"
+                    onPress={() => prefixLines(() => "- ")}
+                  >
+                    <List className="size-3.5" aria-hidden="true" />
+                  </ToolbarButton>
+                  <ToolbarButton
+                    label="Numbered list"
+                    onPress={() => prefixLines((i) => `${i + 1}. `)}
+                  >
+                    <ListOrdered className="size-3.5" aria-hidden="true" />
+                  </ToolbarButton>
+                  <ToolbarButton
+                    label="Quote"
+                    onPress={() => prefixLines(() => "> ")}
+                  >
+                    <TextQuote className="size-3.5" aria-hidden="true" />
+                  </ToolbarButton>
+                  <ToolbarDivider />
+                  <ToolbarButton label="Link" onPress={insertLink}>
+                    <LinkIcon className="size-3.5" aria-hidden="true" />
+                  </ToolbarButton>
+                  <ToolbarButton
+                    label="Link to another note"
+                    emerald
+                    onPress={insertNoteLink}
+                  >
+                    <Link2 className="size-3.5" aria-hidden="true" />
+                  </ToolbarButton>
+                </div>
                 <Textarea
+                  ref={contentRef}
                   id="note-content"
                   value={values.content}
                   onChange={(e) => set("content", e.target.value)}
@@ -393,7 +600,8 @@ function NoteDialog({
                   className="rounded-xl"
                 />
                 <p className="text-[11px] text-muted-foreground">
-                  Markdown supported
+                  Markdown supported · <span className="text-primary">[[Note title]]</span>{" "}
+                  links to another note
                 </p>
               </>
             )}
@@ -467,6 +675,26 @@ function NoteDialog({
               aria-label="Pin note to top"
             />
           </div>
+
+          {backlinks.length > 0 && (
+            <div className="rounded-xl border bg-muted/30 px-3 py-2.5">
+              <p className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                <Link2 className="size-3" aria-hidden="true" /> Mentioned in:
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {backlinks.map((b) => (
+                  <button
+                    key={b.id}
+                    type="button"
+                    onClick={() => onOpenNote(b)}
+                    className="rounded-full border bg-card px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                  >
+                    {b.title || "Untitled note"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <DialogFooter>
             <Button
@@ -582,6 +810,19 @@ export function NotesView() {
   const openEditNote = (note: Note) => {
     setEditingNote(note);
     setDialogOpen(true);
+  };
+
+  /** Resolve a [[wiki-link]] title against the loaded notes. */
+  const openWikiLink = (title: string) => {
+    const needle = title.trim().toLowerCase();
+    const target = notes.find(
+      (n) => (n.title.trim() || "Untitled note").toLowerCase() === needle
+    );
+    if (target) {
+      openEditNote(target);
+    } else {
+      toast.info(`No note titled “${title}” yet`);
+    }
   };
 
   const submitNote = (values: NoteFormValues) => {
@@ -806,6 +1047,7 @@ export function NotesView() {
                   onOpen={openEditNote}
                   onTogglePin={togglePin}
                   onDelete={setNoteToDelete}
+                  onWikiLink={openWikiLink}
                   pinPending={patchNote.isPending}
                 />
               ))}
@@ -818,9 +1060,12 @@ export function NotesView() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         note={editingNote}
+        notes={notes}
         existingTags={tags}
         submitting={saveNote.isPending}
         onSubmit={submitNote}
+        onOpenNote={openEditNote}
+        onWikiLink={openWikiLink}
       />
 
       <AlertDialog

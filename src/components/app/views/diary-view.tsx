@@ -1,11 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   BookOpen,
   Calendar as CalendarIcon,
+  CalendarDays,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -21,7 +22,7 @@ import {
   TriangleAlert,
   Zap,
 } from "lucide-react";
-import type { Day } from "date-fns";
+import { addMonths, format, type Day } from "date-fns";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -100,6 +101,30 @@ const MOOD_BADGE: Record<Mood, string> = {
   low: "border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300",
   rough: "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300",
 };
+
+/** Solid mood fills for the month heatmap (white day numbers). */
+const MOOD_FILL: Record<Mood, string> = {
+  great: "bg-emerald-500/80 text-white",
+  good: "bg-teal-500/80 text-white",
+  okay: "bg-amber-500/80 text-white",
+  low: "bg-orange-500/80 text-white",
+  rough: "bg-rose-500/80 text-white",
+};
+
+/** Neutral fill for entries logged without a mood. */
+const MOOD_FILL_NONE = "bg-foreground/20 text-foreground";
+
+/** Solid legend dots per mood. */
+const MOOD_DOT: Record<Mood, string> = {
+  great: "bg-emerald-500",
+  good: "bg-teal-500",
+  okay: "bg-amber-500",
+  low: "bg-orange-500",
+  rough: "bg-rose-500",
+};
+
+/** Single-letter weekday labels indexed by Date.getDay() (0 = Sunday). */
+const WEEKDAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
 
 /** Longest run of consecutive day keys in a list of entries */
 function longestStreakOf(entries: JournalEntry[]): number {
@@ -314,6 +339,209 @@ function TimelineRow({
         </div>
       </div>
     </div>
+  );
+}
+
+// ── Mood month heatmap ───────────────────────────────────────
+
+function MoodCalendarCard({
+  today,
+  weekStartsOn,
+  onOpenEntry,
+}: {
+  today: string;
+  weekStartsOn: Day;
+  onOpenEntry: (entry: JournalEntry) => void;
+}) {
+  const currentMonth = today.slice(0, 7);
+  const [monthKey, setMonthKey] = React.useState(currentMonth);
+
+  const { data: entries = [], isFetching } = useQuery({
+    queryKey: ["journal", "month", monthKey],
+    queryFn: () => journalApi.month(monthKey),
+    placeholderData: keepPreviousData,
+  });
+
+  const byDate = React.useMemo(() => {
+    const map = new Map<string, JournalEntry>();
+    for (const e of entries) if (!map.has(e.date)) map.set(e.date, e);
+    return map;
+  }, [entries]);
+
+  // Grid math — local calendar dates only, no timezone conversion.
+  const firstOfMonth = keyToDate(`${monthKey}-01`);
+  const daysInMonth = new Date(
+    firstOfMonth.getFullYear(),
+    firstOfMonth.getMonth() + 1,
+    0
+  ).getDate();
+  const leadingBlanks = (firstOfMonth.getDay() - weekStartsOn + 7) % 7;
+
+  // Free navigation backwards capped at 12 months; never beyond the
+  // current month forwards.
+  const minMonth = format(
+    addMonths(keyToDate(`${currentMonth}-01`), -12),
+    "yyyy-MM"
+  );
+  const prevDisabled = monthKey <= minMonth;
+  const nextDisabled = monthKey >= currentMonth;
+
+  const shiftMonth = (delta: number) =>
+    setMonthKey(format(addMonths(keyToDate(`${monthKey}-01`), delta), "yyyy-MM"));
+
+  const weekdayHeader = Array.from(
+    { length: 7 },
+    (_, i) => WEEKDAY_LETTERS[(weekStartsOn + i) % 7]
+  );
+
+  const label = monthLabel(`${monthKey}-01`);
+
+  return (
+    <Card className="view-enter rounded-2xl py-0 shadow-card">
+      <CardContent className="p-4 sm:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+          <div className="flex items-center gap-3">
+            <span
+              className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 ring-1 ring-emerald-500/15 dark:text-emerald-400"
+              aria-hidden="true"
+            >
+              <CalendarDays className="size-4" />
+            </span>
+            <div>
+              <h2 className="text-sm font-semibold leading-tight">Mood calendar</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Your month in colors
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-9 rounded-xl"
+              onClick={() => shiftMonth(-1)}
+              disabled={prevDisabled}
+              aria-label="Previous month"
+            >
+              <ChevronLeft aria-hidden="true" />
+            </Button>
+            <span
+              className="min-w-[7.5rem] text-center text-sm font-semibold tabular-nums"
+              aria-live="polite"
+            >
+              {label}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-9 rounded-xl"
+              onClick={() => shiftMonth(1)}
+              disabled={nextDisabled}
+              aria-label="Next month"
+            >
+              <ChevronRight aria-hidden="true" />
+            </Button>
+          </div>
+        </div>
+
+        <div
+          className={cn(
+            "mt-4 w-full max-w-[336px] transition-opacity",
+            isFetching && "opacity-60"
+          )}
+          aria-busy={isFetching}
+          aria-label={`Mood calendar — ${label}`}
+        >
+          <div className="grid grid-cols-7 gap-1">
+            {weekdayHeader.map((letter, i) => (
+              <span
+                key={`wd-${i}`}
+                aria-hidden="true"
+                className="flex aspect-square items-center justify-center text-[11px] font-medium text-muted-foreground"
+              >
+                {letter}
+              </span>
+            ))}
+            {Array.from({ length: leadingBlanks }, (_, i) => (
+              <span key={`blank-${i}`} aria-hidden="true" className="aspect-square" />
+            ))}
+            {Array.from({ length: daysInMonth }, (_, i) => {
+              const day = i + 1;
+              const key = `${monthKey}-${String(day).padStart(2, "0")}`;
+              const entry = byDate.get(key) ?? null;
+              const isToday = key === today;
+              const isFuture = key > today;
+              const moodLabel = entry?.mood ? moodLabelOf(entry.mood) : null;
+              const tooltip = entry
+                ? moodLabel
+                  ? `${formatKeyLabel(key)} — ${moodLabel}`
+                  : formatKeyLabel(key)
+                : undefined;
+
+              if (entry) {
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => onOpenEntry(entry)}
+                    title={tooltip}
+                    aria-label={tooltip}
+                    className={cn(
+                      "flex aspect-square items-center justify-center rounded-lg text-[11px] font-semibold tabular-nums ring-1 ring-black/5 transition-[filter,box-shadow,transform] hover:brightness-110 hover:scale-105 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
+                      entry.mood ? MOOD_FILL[entry.mood] : MOOD_FILL_NONE,
+                      isToday &&
+                        "ring-2 ring-primary ring-offset-1 ring-offset-background",
+                      isFuture && "opacity-50"
+                    )}
+                  >
+                    {day}
+                  </button>
+                );
+              }
+
+              return (
+                <div
+                  key={key}
+                  aria-disabled="true"
+                  className={cn(
+                    "flex aspect-square cursor-default items-center justify-center rounded-lg bg-muted/40 text-[11px] font-medium tabular-nums text-muted-foreground",
+                    isToday &&
+                      "ring-2 ring-primary ring-offset-1 ring-offset-background",
+                    isFuture && "opacity-50"
+                  )}
+                >
+                  {day}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            {MOODS.map((m) => (
+              <span
+                key={m.value}
+                className="flex items-center gap-1.5 text-[11px] text-muted-foreground"
+              >
+                <span
+                  className={cn("size-2 rounded-full", MOOD_DOT[m.value])}
+                  aria-hidden="true"
+                />
+                {m.label}
+              </span>
+            ))}
+          </div>
+          <p className="whitespace-nowrap text-[11px] text-muted-foreground">
+            <span className="font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+              {entries.length}
+            </span>{" "}
+            entries this month
+          </p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -751,6 +979,13 @@ export function DiaryView() {
               </div>
             </CardContent>
           </Card>
+
+          {/* ── Mood calendar (month heatmap) ── */}
+          <MoodCalendarCard
+            today={today}
+            weekStartsOn={(settings?.weekStartsOn ?? 1) as Day}
+            onOpenEntry={openDay}
+          />
 
           {/* ── Timeline ── */}
           {entries.length === 0 ? (

@@ -65,10 +65,12 @@ import { Badge } from "@/components/ui/badge";
 
 import { EmptyState } from "@/components/app/shared/empty-state";
 import { ViewHeader } from "@/components/app/shared/view-header";
-import { ProgressBar } from "@/components/app/shared/progress";
+import { ProgressBar, ProgressRing } from "@/components/app/shared/progress";
+import { CountUp } from "@/components/app/shared/count-up";
 import { goalsApi } from "@/lib/api";
 import {
   dateToKey,
+  dayDiff,
   friendlyDay,
   todayKey,
   weekStartKey,
@@ -159,7 +161,9 @@ function StatChip({ label, value, hint }: { label: string; value: number; hint: 
       className="rounded-2xl border bg-card px-2 py-3 text-center shadow-card"
       title={hint}
     >
-      <p className="text-xl font-bold tabular-nums sm:text-2xl">{value}</p>
+      <p className="text-xl font-bold sm:text-2xl">
+        <CountUp value={value} />
+      </p>
       <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         {label}
       </p>
@@ -213,6 +217,16 @@ function GoalCard({
   const archived = goal.status === "archived";
   const overdue =
     goal.status === "active" && goal.endDate !== null && goal.endDate < today;
+  // Days until the deadline (negative = past it). Drives the countdown chip.
+  const daysLeft = goal.endDate !== null ? dayDiff(goal.endDate, today) : null;
+  const countdown =
+    daysLeft === null || completed || archived || daysLeft > 7
+      ? null
+      : daysLeft < 0
+        ? `Overdue by ${Math.abs(daysLeft)}d`
+        : daysLeft === 0
+          ? "Due today"
+          : `${daysLeft} day${daysLeft === 1 ? "" : "s"} left`;
 
   return (
     <Card
@@ -336,8 +350,8 @@ function GoalCard({
           <div className="mt-2.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
             <div className="min-w-0 text-xs text-muted-foreground">
               <p>
-                <span className="font-semibold tabular-nums text-foreground">
-                  {goal.progress}
+                <span className="font-semibold text-foreground">
+                  <CountUp value={goal.progress} />
                 </span>
                 <span className="tabular-nums"> / {goal.target}</span>
                 {goal.unit ? ` ${goal.unit}` : ""}
@@ -355,6 +369,18 @@ function GoalCard({
                 >
                   <CalendarDays className="size-3.5" aria-hidden="true" />
                   Due {friendlyDay(goal.endDate)}
+                  {countdown && (
+                    <span
+                      className={cn(
+                        "rounded-full border px-1.5 py-0 text-[10px] font-semibold uppercase tracking-wide",
+                        (daysLeft ?? 0) < 1
+                          ? "border-rose-500/30 bg-rose-500/15 text-rose-700 dark:text-rose-300"
+                          : "border-amber-500/30 bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                      )}
+                    >
+                      {countdown}
+                    </span>
+                  )}
                 </p>
               )}
             </div>
@@ -793,6 +819,19 @@ export function GoalsView() {
   const completedThisWeek = goals.filter(
     (g) => g.status === "completed" && dateToKey(new Date(g.updatedAt)) >= weekStart
   ).length;
+  // Average completion across active goals — drives the hero ring.
+  const activeGoals = goals.filter((g) => g.status === "active");
+  const avgCompletion =
+    activeGoals.length > 0
+      ? Math.round(
+          (activeGoals.reduce(
+            (sum, g) => sum + (g.target > 0 ? g.progress / g.target : 0),
+            0
+          ) /
+            activeGoals.length) *
+            100
+        )
+      : 0;
 
   const filtered = goals.filter(
     (g) =>
@@ -870,6 +909,35 @@ export function GoalsView() {
         <QueryError onRetry={() => goalsQuery.refetch()} />
       ) : (
         <div className="space-y-4">
+          {/* Overall progress hero */}
+          {goals.length > 0 && (
+            <Card className="overflow-hidden rounded-2xl border-primary/20 bg-gradient-to-br from-primary/10 via-card to-card shadow-card">
+              <CardContent className="flex items-center gap-4 p-4 sm:p-5">
+                <ProgressRing
+                  value={avgCompletion}
+                  size={64}
+                  strokeWidth={7}
+                  label="Average goal completion"
+                  labelNode={<CountUp value={avgCompletion} format={(n) => `${n}%`} />}
+                  sublabel="avg"
+                  className="shrink-0 glow-ring"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold sm:text-base">Overall progress</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {activeCount === 0
+                      ? completedCount > 0
+                        ? "Every goal is done — nice work! 🎉"
+                        : "No active goals right now — set one to get moving."
+                      : `Average completion across ${activeCount} active goal${
+                          activeCount === 1 ? "" : "s"
+                        }`}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Summary strip */}
           <div className="grid grid-cols-3 gap-2 sm:gap-3">
             <StatChip label="Active" value={activeCount} hint="Goals currently in progress" />
@@ -924,6 +992,9 @@ export function GoalsView() {
               ))}
             </div>
           </div>
+
+          {/* Hairline between the filter controls and the goal list */}
+          {filtered.length > 0 && <div className="gradient-hr" aria-hidden="true" />}
 
           {/* Goal list */}
           {goals.length === 0 ? (

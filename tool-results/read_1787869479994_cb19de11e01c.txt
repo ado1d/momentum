@@ -1,0 +1,833 @@
+     1→"use client";
+     2→
+     3→import * as React from "react";
+     4→import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+     5→import { toast } from "sonner";
+     6→import {
+     7→  BookOpen,
+     8→  Calendar as CalendarIcon,
+     9→  ChevronDown,
+    10→  ChevronLeft,
+    11→  ChevronRight,
+    12→  CircleCheck,
+    13→  Download,
+    14→  Ellipsis,
+    15→  FileText,
+    16→  Heart,
+    17→  Loader2,
+    18→  Printer,
+    19→  Save,
+    20→  Trash2,
+    21→  TriangleAlert,
+    22→  Zap,
+    23→} from "lucide-react";
+    24→import type { Day } from "date-fns";
+    25→
+    26→import { Badge } from "@/components/ui/badge";
+    27→import { Button } from "@/components/ui/button";
+    28→import {
+    29→  Card,
+    30→  CardContent,
+    31→} from "@/components/ui/card";
+    32→import {
+    33→  AlertDialog,
+    34→  AlertDialogAction,
+    35→  AlertDialogCancel,
+    36→  AlertDialogContent,
+    37→  AlertDialogDescription,
+    38→  AlertDialogFooter,
+    39→  AlertDialogHeader,
+    40→  AlertDialogTitle,
+    41→} from "@/components/ui/alert-dialog";
+    42→import {
+    43→  DropdownMenu,
+    44→  DropdownMenuContent,
+    45→  DropdownMenuItem,
+    46→  DropdownMenuSeparator,
+    47→  DropdownMenuTrigger,
+    48→} from "@/components/ui/dropdown-menu";
+    49→import { Input } from "@/components/ui/input";
+    50→import { Label } from "@/components/ui/label";
+    51→import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+    52→import { Skeleton } from "@/components/ui/skeleton";
+    53→import { Slider } from "@/components/ui/slider";
+    54→import { Textarea } from "@/components/ui/textarea";
+    55→import { Calendar } from "@/components/ui/calendar";
+    56→
+    57→import { EmptyState } from "@/components/app/shared/empty-state";
+    58→import { ViewHeader } from "@/components/app/shared/view-header";
+    59→import { MarkdownContent } from "@/components/app/shared/markdown";
+    60→import { exportApi, journalApi, settingsApi } from "@/lib/api";
+    61→import {
+    62→  addDaysToKey,
+    63→  dateToKey,
+    64→  formatKeyLabel,
+    65→  formatKeyLong,
+    66→  keyToDate,
+    67→  monthLabel,
+    68→  shortDayName,
+    69→  todayKey,
+    70→} from "@/lib/dates";
+    71→import { downloadMarkdown, esc, miniMarkdownToHtml, printHtml } from "@/lib/export";
+    72→import { MOODS, type JournalEntry, type Mood } from "@/lib/types";
+    73→import { cn } from "@/lib/utils";
+    74→
+    75→// ── Helpers ──────────────────────────────────────────────────
+    76→
+    77→function moodEmojiOf(mood: Mood | null): string {
+    78→  return MOODS.find((m) => m.value === mood)?.emoji ?? "";
+    79→}
+    80→
+    81→function moodLabelOf(mood: Mood | null): string {
+    82→  return MOODS.find((m) => m.value === mood)?.label ?? "";
+    83→}
+    84→
+    85→/** Soft tinted halos per mood (all /10 backgrounds, theme aware). */
+    86→const MOOD_TINT: Record<Mood, string> = {
+    87→  great: "bg-emerald-500/10 ring-1 ring-emerald-500/15",
+    88→  good: "bg-teal-500/10 ring-1 ring-teal-500/15",
+    89→  okay: "bg-amber-500/10 ring-1 ring-amber-500/15",
+    90→  low: "bg-orange-500/10 ring-1 ring-orange-500/15",
+    91→  rough: "bg-rose-500/10 ring-1 ring-rose-500/15",
+    92→};
+    93→
+    94→/** Matching outline badge tint for the expanded entry panel. */
+    95→const MOOD_BADGE: Record<Mood, string> = {
+    96→  great:
+    97→    "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    98→  good: "border-teal-500/30 bg-teal-500/10 text-teal-700 dark:text-teal-300",
+    99→  okay: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+   100→  low: "border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300",
+   101→  rough: "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+   102→};
+   103→
+   104→/** Longest run of consecutive day keys in a list of entries */
+   105→function longestStreakOf(entries: JournalEntry[]): number {
+   106→  const keys = Array.from(new Set(entries.map((e) => e.date))).sort();
+   107→  let best = 0;
+   108→  let run = 0;
+   109→  let prev: string | null = null;
+   110→  for (const k of keys) {
+   111→    run = prev !== null && addDaysToKey(prev, 1) === k ? run + 1 : 1;
+   112→    if (run > best) best = run;
+   113→    prev = k;
+   114→  }
+   115→  return best;
+   116→}
+   117→
+   118→function entryPreview(entry: JournalEntry): string {
+   119→  if (entry.title?.trim()) return entry.title.trim();
+   120→  const plain = entry.content.replace(/[#>*_`~\-]/g, "").replace(/\s+/g, " ").trim();
+   121→  return plain.length > 60 ? `${plain.slice(0, 60)}…` : plain;
+   122→}
+   123→
+   124→// ── Small shared pieces ──────────────────────────────────────
+   125→
+   126→function QueryError({ onRetry }: { onRetry: () => void }) {
+   127→  return (
+   128→    <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed bg-muted/30 px-6 py-12 text-center">
+   129→      <TriangleAlert className="size-8 text-muted-foreground" aria-hidden="true" />
+   130→      <div>
+   131→        <p className="text-sm font-semibold">Something went wrong</p>
+   132→        <p className="mt-1 text-xs text-muted-foreground">
+   133→          We could not load your diary. Try again in a moment.
+   134→        </p>
+   135→      </div>
+   136→      <Button variant="outline" size="sm" onClick={onRetry}>
+   137→        Try again
+   138→      </Button>
+   139→    </div>
+   140→  );
+   141→}
+   142→
+   143→function StatChip({
+   144→  value,
+   145→  label,
+   146→  title,
+   147→}: {
+   148→  value: string | number;
+   149→  label: string;
+   150→  title?: string;
+   151→}) {
+   152→  return (
+   153→    <div
+   154→      className="rounded-2xl border bg-card px-2 py-3 text-center shadow-card"
+   155→      title={title}
+   156→    >
+   157→      <p className="text-xl font-bold tabular-nums sm:text-2xl">{value}</p>
+   158→      <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+   159→        {label}
+   160→      </p>
+   161→    </div>
+   162→  );
+   163→}
+   164→
+   165→function DiarySkeleton() {
+   166→  return (
+   167→    <div className="space-y-4" aria-busy="true" aria-label="Loading diary">
+   168→      <Skeleton className="h-11 w-2/3 rounded-2xl" />
+   169→      <Skeleton className="h-[26rem] w-full rounded-2xl" />
+   170→      <div className="space-y-2 pt-2">
+   171→        <Skeleton className="h-4 w-28" />
+   172→        <Skeleton className="h-16 w-full rounded-2xl" />
+   173→        <Skeleton className="h-16 w-full rounded-2xl" />
+   174→      </div>
+   175→    </div>
+   176→  );
+   177→}
+   178→
+   179→// ── Timeline row ─────────────────────────────────────────────
+   180→
+   181→interface TimelineRowProps {
+   182→  entry: JournalEntry;
+   183→  expanded: boolean;
+   184→  onToggle: () => void;
+   185→  onOpenDay: (entry: JournalEntry) => void;
+   186→  onDelete: (entry: JournalEntry) => void;
+   187→  isCurrent: boolean;
+   188→}
+   189→
+   190→function TimelineRow({
+   191→  entry,
+   192→  expanded,
+   193→  onToggle,
+   194→  onOpenDay,
+   195→  onDelete,
+   196→  isCurrent,
+   197→}: TimelineRowProps) {
+   198→  return (
+   199→    <div
+   200→      className={cn(
+   201→        "press relative overflow-hidden rounded-2xl border bg-card shadow-card transition-colors",
+   202→        isCurrent && "border-primary/40"
+   203→      )}
+   204→    >
+   205→      <div className="flex items-center gap-1 pr-1">
+   206→        <button
+   207→          type="button"
+   208→          onClick={onToggle}
+   209→          aria-expanded={expanded}
+   210→          aria-controls={`entry-panel-${entry.id}`}
+   211→          className="flex min-h-[3.25rem] flex-1 items-center gap-3 rounded-l-2xl p-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+   212→        >
+   213→          <span
+   214→            className={cn(
+   215→              "flex size-9 shrink-0 items-center justify-center rounded-xl text-xl",
+   216→              entry.mood ? MOOD_TINT[entry.mood] : "bg-muted/50"
+   217→            )}
+   218→            aria-hidden="true"
+   219→          >
+   220→            {moodEmojiOf(entry.mood) || "·"}
+   221→          </span>
+   222→          <span className="min-w-0 flex-1">
+   223→            <span className="flex items-baseline gap-2">
+   224→              <span className="text-sm font-semibold">{formatKeyLabel(entry.date)}</span>
+   225→              <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+   226→                {shortDayName(entry.date)}
+   227→              </span>
+   228→              {isCurrent && (
+   229→                <Badge
+   230→                  className="rounded-full px-2 py-0 text-[10px] font-semibold uppercase tracking-wide"
+   231→                  variant="default"
+   232→                >
+   233→                  Today
+   234→                </Badge>
+   235→              )}
+   236→            </span>
+   237→            <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+   238→              {entryPreview(entry) || <span className="italic opacity-60">No content</span>}
+   239→            </span>
+   240→          </span>
+   241→          <ChevronDown
+   242→            className={cn(
+   243→              "size-4 shrink-0 text-muted-foreground transition-transform duration-300",
+   244→              expanded && "rotate-180"
+   245→            )}
+   246→            aria-hidden="true"
+   247→          />
+   248→        </button>
+   249→        <DropdownMenu>
+   250→          <DropdownMenuTrigger asChild>
+   251→            <Button
+   252→              variant="ghost"
+   253→              size="icon"
+   254→              className="size-11 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
+   255→              aria-label={`Options for entry on ${formatKeyLabel(entry.date)}`}
+   256→            >
+   257→              <Ellipsis className="size-5" aria-hidden="true" />
+   258→            </Button>
+   259→          </DropdownMenuTrigger>
+   260→          <DropdownMenuContent align="end" className="w-52">
+   261→            <DropdownMenuItem onSelect={() => onOpenDay(entry)}>
+   262→              <BookOpen aria-hidden="true" /> Open this day
+   263→            </DropdownMenuItem>
+   264→            <DropdownMenuSeparator />
+   265→            <DropdownMenuItem variant="destructive" onSelect={() => onDelete(entry)}>
+   266→              <Trash2 aria-hidden="true" /> Delete entry
+   267→            </DropdownMenuItem>
+   268→          </DropdownMenuContent>
+   269→        </DropdownMenu>
+   270→      </div>
+   271→
+   272→      <div
+   273→        id={`entry-panel-${entry.id}`}
+   274→        className={cn(
+   275→          "grid transition-[grid-template-rows] duration-300 ease-out",
+   276→          expanded ? "[grid-template-rows:1fr]" : "[grid-template-rows:0fr]"
+   277→        )}
+   278→      >
+   279→        <div className="overflow-hidden">
+   280→          <div className="border-t px-3 pb-3 pt-3 sm:px-4">
+   281→            <div className="flex flex-wrap items-center gap-1.5">
+   282→              {entry.mood && (
+   283→                <Badge
+   284→                  variant="outline"
+   285→                  className={cn(
+   286→                    "rounded-full px-2 py-0 text-[10px] font-semibold uppercase tracking-wide",
+   287→                    MOOD_BADGE[entry.mood]
+   288→                  )}
+   289→                >
+   290→                  {moodEmojiOf(entry.mood)} {moodLabelOf(entry.mood)}
+   291→                </Badge>
+   292→              )}
+   293→              {entry.energy !== null && (
+   294→                <Badge
+   295→                  variant="outline"
+   296→                  className="gap-1 rounded-full border-amber-500/30 bg-amber-500/15 px-2 py-0 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300"
+   297→                >
+   298→                  <Zap className="size-3" aria-hidden="true" /> Energy {entry.energy}/5
+   299→                </Badge>
+   300→              )}
+   301→            </div>
+   302→            {entry.content.trim() ? (
+   303→              <MarkdownContent content={entry.content} className="mt-2" />
+   304→            ) : (
+   305→              <p className="mt-2 text-sm italic text-muted-foreground/70">No content.</p>
+   306→            )}
+   307→            {entry.gratitude && (
+   308→              <p className="mt-3 flex items-start gap-2 rounded-xl bg-rose-500/5 px-3 py-2 text-sm text-rose-700 dark:text-rose-300">
+   309→                <Heart className="mt-0.5 size-4 shrink-0 fill-rose-500 text-rose-500" aria-hidden="true" />
+   310→                <span>{entry.gratitude}</span>
+   311→              </p>
+   312→            )}
+   313→          </div>
+   314→        </div>
+   315→      </div>
+   316→    </div>
+   317→  );
+   318→}
+   319→
+   320→// ── Main view ────────────────────────────────────────────────
+   321→
+   322→export function DiaryView() {
+   323→  const queryClient = useQueryClient();
+   324→  const today = todayKey();
+   325→
+   326→  const { data: entries = [], isLoading, isError, refetch } = useQuery({
+   327→    queryKey: ["journal"],
+   328→    queryFn: () => journalApi.list({ limit: 366 }),
+   329→  });
+   330→
+   331→  // Shared settings query (powers the calendar's week start)
+   332→  const { data: settings } = useQuery({
+   333→    queryKey: ["settings"],
+   334→    queryFn: settingsApi.get,
+   335→  });
+   336→
+   337→  // ── Editor state ──
+   338→  const [date, setDate] = React.useState(today);
+   339→  const [title, setTitle] = React.useState("");
+   340→  const [content, setContent] = React.useState("");
+   341→  const [mood, setMood] = React.useState<Mood | null>(null);
+   342→  const [energy, setEnergy] = React.useState(3);
+   343→  const [gratitude, setGratitude] = React.useState("");
+   344→  const [justSaved, setJustSaved] = React.useState(false);
+   345→  const [calOpen, setCalOpen] = React.useState(false);
+   346→
+   347→  const [expandedId, setExpandedId] = React.useState<string | null>(null);
+   348→  const [entryToDelete, setEntryToDelete] = React.useState<JournalEntry | null>(null);
+   349→  const [exporting, setExporting] = React.useState<string | null>(null);
+   350→
+   351→  const contentRef = React.useRef<HTMLTextAreaElement>(null);
+   352→
+   353→  const entry = entries.find((e) => e.date === date) ?? null;
+   354→
+   355→  // Load the selected day's entry into the form whenever the day
+   356→  // changes or a different server version arrives (e.g. after save).
+   357→  const syncedSig = React.useRef("");
+   358→  React.useEffect(() => {
+   359→    const sig = `${date}:${entry?.updatedAt ?? "-"}`;
+   360→    if (syncedSig.current !== sig) {
+   361→      syncedSig.current = sig;
+   362→      setTitle(entry?.title ?? "");
+   363→      setContent(entry?.content ?? "");
+   364→      setMood(entry?.mood ?? null);
+   365→      setEnergy(entry?.energy ?? 3);
+   366→      setGratitude(entry?.gratitude ?? "");
+   367→    }
+   368→  }, [date, entry]);
+   369→
+   370→  // Auto-hide the "Saved" chip
+   371→  React.useEffect(() => {
+   372→    if (!justSaved) return;
+   373→    const id = setTimeout(() => setJustSaved(false), 3000);
+   374→    return () => clearTimeout(id);
+   375→  }, [justSaved]);
+   376→
+   377→  // ── Mutations ──
+   378→
+   379→  const saveEntry = useMutation({
+   380→    mutationFn: () =>
+   381→      journalApi.upsert({
+   382→        date,
+   383→        title: title.trim() || null,
+   384→        content,
+   385→        mood,
+   386→        energy,
+   387→        gratitude: gratitude.trim() || null,
+   388→      }),
+   389→    onSuccess: () => {
+   390→      void queryClient.invalidateQueries({ queryKey: ["journal"] });
+   391→      void queryClient.invalidateQueries({ queryKey: ["stats"] });
+   392→      setJustSaved(true);
+   393→      toast.success(entry ? "Diary updated" : "Diary saved");
+   394→    },
+   395→    onError: (e) => toast.error(e.message || "Could not save entry"),
+   396→  });
+   397→
+   398→  const removeEntry = useMutation({
+   399→    mutationFn: (id: string) => journalApi.remove(id),
+   400→    onSuccess: () => {
+   401→      void queryClient.invalidateQueries({ queryKey: ["journal"] });
+   402→      void queryClient.invalidateQueries({ queryKey: ["stats"] });
+   403→      toast.success("Entry deleted");
+   404→      setEntryToDelete(null);
+   405→    },
+   406→    onError: (e) => toast.error(e.message || "Could not delete entry"),
+   407→  });
+   408→
+   409→  // ── Derived data ──
+   410→
+   411→  const isToday = date === today;
+   412→  const nextKey = addDaysToKey(date, 1);
+   413→  const nextDisabled = nextKey > today;
+   414→
+   415→  const thisMonthPrefix = today.slice(0, 7);
+   416→  const thisMonthCount = entries.filter((e) => e.date.startsWith(thisMonthPrefix)).length;
+   417→  const longestStreak = longestStreakOf(entries);
+   418→
+   419→  const timeline = React.useMemo(() => {
+   420→    const groups: { month: string; items: JournalEntry[] }[] = [];
+   421→    for (const e of [...entries].sort((a, b) => b.date.localeCompare(a.date))) {
+   422→      const month = monthLabel(e.date);
+   423→      const last = groups[groups.length - 1];
+   424→      if (last && last.month === month) last.items.push(e);
+   425→      else groups.push({ month, items: [e] });
+   426→    }
+   427→    return groups;
+   428→  }, [entries]);
+   429→
+   430→  // ── Handlers ──
+   431→
+   432→  const save = () => {
+   433→    if (
+   434→      !entry &&
+   435→      !title.trim() &&
+   436→      !content.trim() &&
+   437→      !gratitude.trim() &&
+   438→      mood === null
+   439→    ) {
+   440→      toast.error("Write something first — even one line counts");
+   441→      contentRef.current?.focus();
+   442→      return;
+   443→    }
+   444→    saveEntry.mutate();
+   445→  };
+   446→
+   447→  const openDay = (e: JournalEntry) => {
+   448→    setDate(e.date);
+   449→    setExpandedId(null);
+   450→    window.scrollTo({ top: 0, behavior: "smooth" });
+   451→  };
+   452→
+   453→  const focusTodayEditor = () => {
+   454→    setDate(today);
+   455→    window.scrollTo({ top: 0, behavior: "smooth" });
+   456→    // Wait for the form to sync to today's entry, then focus.
+   457→    setTimeout(() => contentRef.current?.focus(), 120);
+   458→  };
+   459→
+   460→  const runExport = async (
+   461→    id: string,
+   462→    label: string,
+   463→    fn: () => Promise<void> | void
+   464→  ) => {
+   465→    setExporting(id);
+   466→    const toastId = toast.loading(`Preparing ${label}…`);
+   467→    try {
+   468→      await fn();
+   469→      toast.success(`${label} ready`, { id: toastId });
+   470→    } catch (e) {
+   471→      toast.error(e instanceof Error ? e.message : `${label} failed`, { id: toastId });
+   472→    } finally {
+   473→      setExporting(null);
+   474→    }
+   475→  };
+   476→
+   477→  const exportMarkdown = () =>
+   478→    runExport("md", "Markdown export", async () => {
+   479→      const md = await exportApi.markdown("journal");
+   480→      downloadMarkdown(md, "momentum-diary.md");
+   481→    });
+   482→
+   483→  const exportPdf = () =>
+   484→    runExport("pdf", "PDF export", async () => {
+   485→      if (entries.length === 0) {
+   486→        toast.error("Nothing to export yet");
+   487→        return;
+   488→      }
+   489→      const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date));
+   490→      const html = sorted
+   491→        .map(
+   492→          (e) => `
+   493→        <div>
+   494→          <div style="font-size:17px; font-weight:700; margin:18px 0 4px;">${esc(formatKeyLabel(e.date))}${moodEmojiOf(e.mood) ? ` ${moodEmojiOf(e.mood)}` : ""}${e.title ? ` — ${esc(e.title)}` : ""}</div>
+   495→          ${e.energy !== null ? `<div style="font-size:11px; color:#777;">Energy ${e.energy}/5</div>` : ""}
+   496→          ${e.gratitude ? `<div style="font-size:13px; color:#0f766e; margin:6px 0;">♥ Grateful for: ${esc(e.gratitude)}</div>` : ""}
+   497→          ${miniMarkdownToHtml(e.content)}
+   498→          <hr style="border:none; border-top:1px solid #e3e3e3; margin:16px 0 4px;" />
+   499→        </div>`
+   500→        )
+   501→        .join("");
+   502→      printHtml("Daily Diary", html);
+   503→    });
+   504→
+   505→  const exportBusy = exporting !== null;
+   506→
+   507→  // ── Render ──
+   508→
+   509→  return (
+   510→    <div>
+   511→      <ViewHeader
+   512→        title="Daily Diary"
+   513→        subtitle="Reflect, learn, grow"
+   514→        actions={
+   515→          <DropdownMenu>
+   516→            <DropdownMenuTrigger asChild>
+   517→              <Button
+   518→                variant="outline"
+   519→                size="icon"
+   520→                className="size-11 rounded-xl"
+   521→                aria-label="Export diary"
+   522→                disabled={exportBusy}
+   523→              >
+   524→                {exportBusy ? (
+   525→                  <Loader2 className="animate-spin" aria-hidden="true" />
+   526→                ) : (
+   527→                  <Download aria-hidden="true" />
+   528→                )}
+   529→              </Button>
+   530→            </DropdownMenuTrigger>
+   531→            <DropdownMenuContent align="end" className="w-56">
+   532→              <DropdownMenuItem onSelect={exportMarkdown}>
+   533→                <FileText aria-hidden="true" /> Export diary (Markdown)
+   534→              </DropdownMenuItem>
+   535→              <DropdownMenuItem onSelect={exportPdf}>
+   536→                <Printer aria-hidden="true" /> Export diary (PDF)
+   537→              </DropdownMenuItem>
+   538→            </DropdownMenuContent>
+   539→          </DropdownMenu>
+   540→        }
+   541→      />
+   542→
+   543→      {isLoading ? (
+   544→        <DiarySkeleton />
+   545→      ) : isError ? (
+   546→        <QueryError onRetry={() => void refetch()} />
+   547→      ) : (
+   548→        <div className="space-y-6">
+   549→          {entries.length > 0 && (
+   550→            <div className="grid grid-cols-3 gap-2">
+   551→              <StatChip value={entries.length} label="Entries" title="Total diary entries" />
+   552→              <StatChip value={thisMonthCount} label="This month" title="Entries written this calendar month" />
+   553→              <StatChip
+   554→                value={longestStreak}
+   555→                label="Best streak"
+   556→                title="Longest run of consecutive days with an entry"
+   557→              />
+   558→            </div>
+   559→          )}
+   560→
+   561→          {/* ── Entry editor ── */}
+   562→          <Card className="rounded-2xl py-0 shadow-card">
+   563→            <CardContent className="p-4 sm:p-6">
+   564→              {/* Date navigation */}
+   565→              <div className="flex items-center gap-1.5">
+   566→                <Button
+   567→                  variant="outline"
+   568→                  size="icon"
+   569→                  className="size-11 shrink-0 rounded-xl"
+   570→                  onClick={() => setDate(addDaysToKey(date, -1))}
+   571→                  aria-label="Previous day"
+   572→                >
+   573→                  <ChevronLeft aria-hidden="true" />
+   574→                </Button>
+   575→                <Popover open={calOpen} onOpenChange={setCalOpen}>
+   576→                  <PopoverTrigger asChild>
+   577→                    <button
+   578→                      type="button"
+   579→                      className="flex min-h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-xl px-2 py-2 text-center transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+   580→                      aria-label={`Choose a date — currently ${isToday ? "today" : formatKeyLabel(date)}`}
+   581→                    >
+   582→                      <span className="min-w-0 truncate text-sm font-semibold sm:text-base">
+   583→                        <span className="sm:hidden">
+   584→                          {isToday ? "Today · " : ""}
+   585→                          {formatKeyLabel(date)}
+   586→                        </span>
+   587→                        <span className="hidden sm:inline">
+   588→                          {isToday ? "Today · " : ""}
+   589→                          {formatKeyLong(date)}
+   590→                        </span>
+   591→                      </span>
+   592→                      <CalendarIcon
+   593→                        className="size-4 shrink-0 text-muted-foreground"
+   594→                        aria-hidden="true"
+   595→                      />
+   596→                    </button>
+   597→                  </PopoverTrigger>
+   598→                  <PopoverContent className="w-auto rounded-2xl p-0" align="center">
+   599→                    <Calendar
+   600→                      mode="single"
+   601→                      selected={keyToDate(date)}
+   602→                      onSelect={(d) => {
+   603→                        if (d) {
+   604→                          setDate(dateToKey(d));
+   605→                          setCalOpen(false);
+   606→                        }
+   607→                      }}
+   608→                      disabled={{ after: new Date() }}
+   609→                      weekStartsOn={(settings?.weekStartsOn ?? 1) as Day}
+   610→                    />
+   611→                  </PopoverContent>
+   612→                </Popover>
+   613→                <Button
+   614→                  variant="outline"
+   615→                  size="icon"
+   616→                  className="size-11 shrink-0 rounded-xl"
+   617→                  onClick={() => setDate(nextKey)}
+   618→                  disabled={nextDisabled}
+   619→                  aria-label="Next day"
+   620→                >
+   621→                  <ChevronRight aria-hidden="true" />
+   622→                </Button>
+   623→              </div>
+   624→
+   625→              {/* Mood + energy */}
+   626→              <div className="mt-5 grid gap-5 sm:grid-cols-2">
+   627→                <div className="space-y-2">
+   628→                  <Label>Mood</Label>
+   629→                  <div
+   630→                    className="flex flex-wrap items-center gap-2"
+   631→                    role="group"
+   632→                    aria-label="Mood"
+   633→                  >
+   634→                    {MOODS.map((m) => (
+   635→                      <button
+   636→                        key={m.value}
+   637→                        type="button"
+   638→                        onClick={() => setMood(mood === m.value ? null : m.value)}
+   639→                        aria-pressed={mood === m.value}
+   640→                        aria-label={`Mood: ${m.label}`}
+   641→                        title={m.label}
+   642→                        className={cn(
+   643→                          "flex size-11 items-center justify-center rounded-2xl border text-xl transition-all duration-200",
+   644→                          mood === m.value
+   645→                            ? "scale-110 border-primary bg-primary/10 ring-2 ring-primary/40"
+   646→                            : "border-border bg-muted/40 hover:bg-muted"
+   647→                        )}
+   648→                      >
+   649→                        <span aria-hidden="true">{m.emoji}</span>
+   650→                      </button>
+   651→                    ))}
+   652→                  </div>
+   653→                </div>
+   654→
+   655→                <div className="space-y-2">
+   656→                  <div className="flex items-center justify-between">
+   657→                    <Label htmlFor="entry-energy">Energy</Label>
+   658→                    <span className="text-xs font-medium tabular-nums text-muted-foreground">
+   659→                      {energy}/5
+   660→                    </span>
+   661→                  </div>
+   662→                  <div className="px-1 pt-3">
+   663→                    <Slider
+   664→                      id="entry-energy"
+   665→                      value={[energy]}
+   666→                      min={1}
+   667→                      max={5}
+   668→                      step={1}
+   669→                      onValueChange={([v]) => setEnergy(v)}
+   670→                      aria-label="Energy level"
+   671→                    />
+   672→                  </div>
+   673→                  <div className="flex justify-between text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+   674→                    <span>Low</span>
+   675→                    <span>High</span>
+   676→                  </div>
+   677→                </div>
+   678→              </div>
+   679→
+   680→              {/* Title / gratitude / content */}
+   681→              <div className="mt-5 space-y-4">
+   682→                <div className="space-y-1.5">
+   683→                  <Label htmlFor="entry-title">Headline</Label>
+   684→                  <Input
+   685→                    id="entry-title"
+   686→                    value={title}
+   687→                    onChange={(e) => setTitle(e.target.value)}
+   688→                    placeholder="What's the headline of your day?"
+   689→                    maxLength={140}
+   690→                    className="h-11 rounded-xl"
+   691→                  />
+   692→                </div>
+   693→
+   694→                <div className="space-y-1.5">
+   695→                  <Label htmlFor="entry-gratitude">Gratitude</Label>
+   696→                  <div className="relative">
+   697→                    <Heart
+   698→                      className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-rose-500"
+   699→                      aria-hidden="true"
+   700→                    />
+   701→                    <Input
+   702→                      id="entry-gratitude"
+   703→                      value={gratitude}
+   704→                      onChange={(e) => setGratitude(e.target.value)}
+   705→                      placeholder="One thing you're grateful for…"
+   706→                      maxLength={200}
+   707→                      className="h-11 rounded-xl pl-9"
+   708→                    />
+   709→                  </div>
+   710→                </div>
+   711→
+   712→                <div className="space-y-1.5">
+   713→                  <Label htmlFor="entry-content">Entry</Label>
+   714→                  <Textarea
+   715→                    id="entry-content"
+   716→                    ref={contentRef}
+   717→                    value={content}
+   718→                    onChange={(e) => setContent(e.target.value)}
+   719→                    rows={8}
+   720→                    placeholder="How was your day? What did you learn, feel, accomplish…"
+   721→                    className="rounded-xl"
+   722→                  />
+   723→                  <p className="text-[11px] text-muted-foreground">Markdown supported</p>
+   724→                </div>
+   725→              </div>
+   726→
+   727→              {/* Save row */}
+   728→              <div className="mt-5 flex flex-wrap items-center gap-2">
+   729→                <Button
+   730→                  onClick={save}
+   731→                  disabled={saveEntry.isPending}
+   732→                  className="h-11 min-w-32 rounded-xl"
+   733→                >
+   734→                  {saveEntry.isPending ? (
+   735→                    <Loader2 className="animate-spin" aria-hidden="true" />
+   736→                  ) : (
+   737→                    <Save aria-hidden="true" />
+   738→                  )}
+   739→                  {entry ? "Update" : "Save"} entry
+   740→                </Button>
+   741→                {entry && !justSaved && (
+   742→                  <span className="text-xs text-muted-foreground">
+   743→                    Entry exists for this day
+   744→                  </span>
+   745→                )}
+   746→                {justSaved && (
+   747→                  <Badge className="gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+   748→                    <CircleCheck className="size-3.5" aria-hidden="true" /> Saved
+   749→                  </Badge>
+   750→                )}
+   751→              </div>
+   752→            </CardContent>
+   753→          </Card>
+   754→
+   755→          {/* ── Timeline ── */}
+   756→          {entries.length === 0 ? (
+   757→            <EmptyState
+   758→              icon={BookOpen}
+   759→              title="Your story starts today"
+   760→              description="Write your first entry above — a mood, a headline, one thing you're grateful for. Future-you will thank you."
+   761→              actionLabel="Write today's entry"
+   762→              onAction={focusTodayEditor}
+   763→            />
+   764→          ) : (
+   765→            <section aria-label="Past entries">
+   766→              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+   767→                Past entries
+   768→              </h2>
+   769→              <div className="stagger-list relative space-y-5">
+   770→                {/* Timeline thread — fades out at both ends, peeks through
+   771→                    the gaps between rows and beside month labels. */}
+   772→                <span
+   773→                  aria-hidden="true"
+   774→                  className="fade-ends-y absolute bottom-3 left-[30px] top-0 w-px"
+   775→                />
+   776→                {timeline.map((group) => (
+   777→                  <div key={group.month}>
+   778→                    <h3 className="mb-2 pl-9 text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
+   779→                      {group.month}
+   780→                    </h3>
+   781→                    <div className="space-y-2">
+   782→                      {group.items.map((e) => (
+   783→                        <TimelineRow
+   784→                          key={e.id}
+   785→                          entry={e}
+   786→                          expanded={expandedId === e.id}
+   787→                          isCurrent={e.date === today}
+   788→                          onToggle={() =>
+   789→                            setExpandedId(expandedId === e.id ? null : e.id)
+   790→                          }
+   791→                          onOpenDay={openDay}
+   792→                          onDelete={setEntryToDelete}
+   793→                        />
+   794→                      ))}
+   795→                    </div>
+   796→                  </div>
+   797→                ))}
+   798→              </div>
+   799→            </section>
+   800→          )}
+   801→        </div>
+   802→      )}
+   803→
+   804→      <AlertDialog
+   805→        open={entryToDelete !== null}
+   806→        onOpenChange={(open) => {
+   807→          if (!open) setEntryToDelete(null);
+   808→        }}
+   809→      >
+   810→        <AlertDialogContent className="rounded-2xl">
+   811→          <AlertDialogHeader>
+   812→            <AlertDialogTitle>Delete this entry?</AlertDialogTitle>
+   813→            <AlertDialogDescription>
+   814→              Your diary entry for{" "}
+   815→              {entryToDelete ? formatKeyLong(entryToDelete.date) : "this day"} will be
+   816→              permanently removed. This cannot be undone.
+   817→            </AlertDialogDescription>
+   818→          </AlertDialogHeader>
+   819→          <AlertDialogFooter>
+   820→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+   821→            <AlertDialogAction
+   822→              className="bg-destructive text-white hover:bg-destructive/90"
+   823→              onClick={() => entryToDelete && removeEntry.mutate(entryToDelete.id)}
+   824→            >
+   825→              Delete
+   826→            </AlertDialogAction>
+   827→          </AlertDialogFooter>
+   828→        </AlertDialogContent>
+   829→      </AlertDialog>
+   830→    </div>
+   831→  );
+   832→}
+   833→

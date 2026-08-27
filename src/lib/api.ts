@@ -140,6 +140,9 @@ export const journalApi = {
     const qs = q.toString();
     return get<JournalEntry[]>(`/api/journal${qs ? `?${qs}` : ""}`);
   },
+  /** Entries for a calendar month ("YYYY-MM"), oldest first. */
+  month: (monthKey: string) =>
+    get<JournalEntry[]>(`/api/journal?month=${encodeURIComponent(monthKey)}`),
   get: (date: string) => get<JournalEntry | null>(`/api/journal/${date}`),
   upsert: (input: JournalEntryInput) => post<JournalEntry>("/api/journal", input),
   remove: (id: string) => del<{ ok: boolean }>(`/api/journal/${id}`),

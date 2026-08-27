@@ -234,12 +234,26 @@ export interface FocusSessionInput {
   endedAt?: string; // ISO, defaults to now
 }
 
+/** A focus session as shown in the recent-sessions list — the linked todo's
+ *  title resolved at read time (null when unlinked or the task was deleted). */
+export interface FocusSessionWithTask {
+  id: string;
+  minutes: number;
+  startedAt: string; // ISO
+  endedAt: string; // ISO
+  label: string | null;
+  taskId: string | null;
+  taskTitle: string | null; // resolved todo title; null when unlinked or task deleted
+}
+
 export interface FocusStats {
   todayMinutes: number;
   weekMinutes: number;
   lastWeekMinutes: number;
   totalSessions: number;
   todaySessions: number;
+  /** Last 10 sessions (endedAt desc) with resolved task titles. */
+  recent: FocusSessionWithTask[];
 }
 
 // ─────────────────────────────────────────────────────────────
