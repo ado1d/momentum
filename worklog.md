@@ -908,3 +908,16 @@ Stage Summary:
 - REAL USER active: aaymanchowdhury@gmail.com signed in ~12:47 UTC (Google OAuth works on production!), 1 todo + 3 habits + 2 goals + 1 note ("react fregments" — the malformed-bold note from the screenshot) + 1 journal entry. DO NOT clean their data. Neon is NOT empty anymore — QA user cleanup must always target the specific QA email only.
 - Repo cleanup in same push: untracked qa/ screenshots + scripts, tool-results/ junk (cron agent had committed them); normalized stray +x modes from the amend; .gitignore += upload/, tool-results/, qa/; worklog.md now TRACKED in git (recovery lesson after today's deletion incident).
 - Deploy: user connected the repo in Vercel -> push to main auto-deploys. Production was still 4502fd3 (race fix + health + docs + this editor work all pending); this push carries everything.
+---
+Task ID: EDITOR-DEPLOY-CONFIRMED
+Agent: main
+Task: Push + verify production deploy of the WYSIWYG editor
+
+Work Log:
+- Pushed b5f6efe (force-with-lease first rejected on stale tracking ref — remote was still 3e83dbd; verified via fetch that remote content == local parent d7dd46e modulo file modes, then force-pushed safely).
+- Auto-deploy via the user's Git connection WORKED: production /api/health flipped from 404 to {"commit":"b5f6efe…"} ~90s after push (17:18 UTC).
+- Production smoke: app 200, session 200, todos 401-protected, sw 200, health 200 with new sha; browser check (prodsmoke): login screen renders, 0 console errors.
+- IMPORTANT for future QA rounds: production is now b5f6efe+ (WYSIWYG live). Real user aaymanchowdhury@gmail.com has data in Neon — never wipe. Local dev server runs on the same Neon DB.
+
+Stage Summary:
+- USER-REPORTED BUG FIXED AND SHIPPED: bold/italic now render live while writing in Notes, Diary and Tasks (WYSIWYG), toolbar + Cmd+B/I + typed-markdown shortcuts all work, wiki-links preserved, dark mode + mobile verified. Live at https://momentum-theta-navy.vercel.app (health endpoint confirms deployed commit).
