@@ -10,6 +10,7 @@ import GoogleProvider from "next-auth/providers/google";
 
 import { db } from "@/lib/db";
 import { HttpError } from "@/lib/server/http";
+import { Prisma } from "@prisma/client";
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -33,19 +34,36 @@ export const authOptions: NextAuthOptions = {
       // First sign-in (or re-consent): upsert the local User row and
       // attach its id to the token. `token.uid` persists across requests.
       if (account && user?.email) {
-        const dbUser = await db.user.upsert({
-          where: { email: user.email },
-          update: {
-            name: user.name ?? undefined,
-            image: user.image ?? undefined,
-          },
-          create: {
-            email: user.email,
-            name: user.name ?? null,
-            image: user.image ?? null,
-            emailVerified: new Date(),
-          },
-        });
+        let dbUser;
+        try {
+          dbUser = await db.user.upsert({
+            where: { email: user.email },
+            update: {
+              name: user.name ?? undefined,
+              image: user.image ?? undefined,
+            },
+            create: {
+              email: user.email,
+              name: user.name ?? null,
+              image: user.image ?? null,
+              emailVerified: new Date(),
+            },
+          });
+        } catch (err) {
+          // Two devices completing Google sign-in with the same email in the
+          // same instant: the INSERT loser reuses the winner's row instead of
+          // failing the sign-in.
+          if (
+            err instanceof Prisma.PrismaClientKnownRequestError &&
+            err.code === "P2002"
+          ) {
+            dbUser = await db.user.findUniqueOrThrow({
+              where: { email: user.email },
+            });
+          } else {
+            throw err;
+          }
+        }
         token.uid = dbUser.id;
         token.picture = user.image ?? token.picture;
       }

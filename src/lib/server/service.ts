@@ -64,8 +64,17 @@ export async function getSettings(userId: string) {
       update: {},
     });
   } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003") {
-      throw new HttpError("Sign in to use Momentum", 401);
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      if (err.code === "P2003") {
+        throw new HttpError("Sign in to use Momentum", 401);
+      }
+      // First-load burst: a brand-new user's app fires many parallel requests
+      // and several hit this upsert at once. The INSERT losers collide on the
+      // Settings.userId unique constraint — the winner's row is already
+      // committed, so just read it instead of surfacing a 409.
+      if (err.code === "P2002") {
+        return db.settings.findUniqueOrThrow({ where: { userId } });
+      }
     }
     throw err;
   }
