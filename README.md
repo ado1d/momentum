@@ -1,10 +1,12 @@
 # Momentum — Productivity Companion
 
-A local-first, single-page productivity app: tasks, habits, goals, notes, journal, and a Pomodoro focus timer — in one calm interface. Built with Next.js 16 and a local SQLite database. Installable as a PWA and works offline.
+A multi-user, single-page productivity app: tasks, habits, goals, notes, journal, and a Pomodoro focus timer — in one calm interface. Sign in with Google; every user's data is isolated in their own workspace. Built with Next.js 16, Neon Postgres, and NextAuth. Installable as a PWA with an offline shell.
 
-![stack](https://img.shields.io/badge/Next.js-16-black) ![stack](https://img.shields.io/badge/TypeScript-strict-blue) ![stack](https://img.shields.io/badge/Prisma-SQLite-teal) ![stack](https://img.shields.io/badge/Tailwind-v4-emerald)
+![stack](https://img.shields.io/badge/Next.js-16-black) ![stack](https://img.shields.io/badge/TypeScript-strict-3178c6) ![stack](https://img.shields.io/badge/Prisma-Postgres(teal)-teal) ![stack](https://img.shields.io/badge/Tailwind-v4-emerald) ![stack](https://img.shields.io/badge/NextAuth-Google-red)
 
 ## Features
+
+**Auth** — Google sign-in (NextAuth v4, JWT sessions), per-user data isolation on every endpoint, avatar menu with sign-out, per-user onboarding tour. Public health probe at `/api/health` (returns the deployed commit sha).
 
 **Dashboard** — daily score, today's focus tasks, habit check-ins, streaks, weekly average, motivational quotes.
 
@@ -28,7 +30,8 @@ A local-first, single-page productivity app: tasks, habits, goals, notes, journa
 
 - **Next.js 16** (App Router) + **TypeScript** (strict)
 - **Tailwind CSS 4** + **shadcn/ui** (New York style) + Lucide icons
-- **Prisma ORM** + **SQLite** (11 models)
+- **Prisma ORM** + **Neon Postgres** (12 models, pooled runtime connection)
+- **NextAuth v4** (Google provider, JWT strategy)
 - **Zustand** (UI state) + **TanStack Query v5** (server state)
 - **zod** validation, **sonner** toasts, **date-fns**, **next-themes**
 - Vanilla service worker (no runtime deps) for PWA/offline
@@ -41,17 +44,20 @@ A local-first, single-page productivity app: tasks, habits, goals, notes, journa
 # 1. install dependencies
 bun install
 
-# 2. configure the database URL
-cp .env.example .env   # DATABASE_URL="file:../db/custom.db"
+# 2. configure environment (Neon Postgres + Google OAuth)
+cp .env.example .env    # fill in DATABASE_URL, DIRECT_URL,
+                        # NEXTAUTH_SECRET, GOOGLE_CLIENT_ID/SECRET
+#    Google Cloud Console → Credentials → OAuth client:
+#    redirect URI http://localhost:3000/api/auth/callback/google
 
-# 3. create the SQLite database (fresh schema)
+# 3. push the schema to your database
 bun run db:push
 
 # 4. start the dev server
 bun run dev            # → http://localhost:3000
 ```
 
-The app ships with empty states everywhere — add your first task with `n`, create habits in Routine, and the dashboard fills in as you go.
+New users start with empty states everywhere — the onboarding tour opens automatically on first sign-in.
 
 ### Useful scripts
 
@@ -61,56 +67,48 @@ The app ships with empty states everywhere — add your first task with `n`, cre
 | `bun run build` | Production build (standalone output) |
 | `bun run start` | Run the production build |
 | `bun run lint` | ESLint |
-| `bun run db:push` | Push `prisma/schema.prisma` to SQLite |
+| `bun run db:push` | Push `prisma/schema.prisma` to Postgres (uses `DIRECT_URL`) |
 | `bun run db:generate` | Regenerate the Prisma client |
 
 ## Deployment
 
-> ⚠️ **Heads-up: this app uses SQLite via a local file (`db/custom.db`).**
-> Vercel (and most serverless platforms) have **ephemeral filesystems** — the database resets on every deployment. Your data is safe locally, but a vanilla Vercel deploy would start empty on each cold start.
+The reference deployment runs on **Vercel + Neon Postgres** (zero-config for this stack):
 
-You have three options:
+1. Create a Neon project → copy the pooled and direct connection strings.
+2. Import this repo into Vercel (New Project → Import Git Repository).
+3. Set env vars on Vercel (Production + Preview):
+   - `DATABASE_URL` — Neon **pooled** URL (`…-pooler…neon.tech/…?sslmode=require`)
+   - `DIRECT_URL` — Neon **direct** URL (used only by migrations)
+   - `NEXTAUTH_URL` — `https://<your-domain>` (production only)
+   - `NEXTAUTH_SECRET` — `openssl rand -base64 32`
+   - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — from Google Cloud Console
+4. Deploy. In Google Cloud Console add:
+   - Authorized JavaScript origin: `https://<your-domain>`
+   - Authorized redirect URI: `https://<your-domain>/api/auth/callback/google`
 
-### Option A — Self-host (recommended, keeps SQLite as-is)
+Vercel auto-detects Next.js; `postinstall` runs `prisma generate` automatically. Verify the deploy with `GET /api/health` — it returns the live commit sha (`VERCEL_GIT_COMMIT_SHA`).
 
-Deploy on any machine/container with a persistent disk (VPS, Docker, Railway/Fly.io with a volume, home server):
-
-```bash
-bun install && bun run build && bun run start
-```
-
-Your data lives in `db/custom.db` — back it up with the in-app JSON export (Settings → Export), which can be restored on any instance (Settings → Import & restore).
-
-### Option B — Vercel + Turso (SQLite-compatible, minimal changes)
-
-[Turso](https://turso.tech) is a hosted libSQL database — the closest match to this stack:
-
-1. Change the Prisma datasource to `provider = "sqlite"` with a `libsql:` URL + `@prisma/adapter-libsql` driver adapter (small change in `prisma/schema.prisma` + `src/lib/db.ts`).
-2. Add env vars on Vercel: `DATABASE_URL`, `TURSO_AUTH_TOKEN`.
-3. `vercel deploy`.
-
-### Option C — Vercel + Postgres (Neon / Vercel Postgres / Supabase)
-
-1. Flip the Prisma provider to `postgresql` and adjust a few column types.
-2. Run `prisma migrate dev` against the hosted DB, then `vercel deploy`.
-
-> Note: the PWA service worker (`public/sw.js`) serves the cached app shell offline — this works on any host. A single-user, single-instance topology is assumed (no auth layer).
+> Also works anywhere Node runs (self-host, Docker, Railway, Fly.io): `bun install && bun run build && bun run start` with the same env vars — just point it at any Postgres (Neon, Supabase, RDS…).
 
 ## Project structure
 
 ```
-prisma/schema.prisma      # 11 models: Todo, Subtask, Habit, HabitLog,
+prisma/schema.prisma      # 12 models: User, Todo, Subtask, Habit, HabitLog,
                           # RoutineTask, RoutineLog, Note, JournalEntry,
                           # Goal, FocusSession, Settings
-src/app/api/              # 17 REST route groups (typed, zod-validated)
+src/app/api/              # 17 REST route groups (typed, zod-validated,
+                          # every handler scoped to the signed-in user)
+src/app/api/auth/         # NextAuth (Google) endpoints
 src/app/page.tsx          # the single route — SPA view switching
+src/components/auth/      # login screen, user menu (avatar + sign-out)
 src/components/app/       # app shell, command palette, quick add,
                           # review dialog, onboarding, PWA pieces
 src/components/app/views/ # 9 views: dashboard, tasks, routine, goals,
                           # notes, diary, insights, focus, settings
 src/components/ui/        # shadcn/ui primitives
 src/lib/                  # typed API client, date helpers, drag hook,
-                          # notifications, markdown, export pipeline
+                          # notifications, markdown, export pipeline,
+                          # server auth (NextAuth options + guards)
 public/sw.js              # vanilla service worker (offline shell + cache)
 ```
 
