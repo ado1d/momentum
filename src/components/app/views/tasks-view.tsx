@@ -81,7 +81,6 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
 import {
   CategoryBadge,
   PriorityBadge,
@@ -89,8 +88,23 @@ import {
   repeatOptionLabel,
 } from "@/components/app/shared/badges";
 import { EmptyState } from "@/components/app/shared/empty-state";
+import { RichEditor } from "@/components/app/shared/rich-editor";
 import { ViewHeader } from "@/components/app/shared/view-header";
 import { cn } from "@/lib/utils";
+
+/** Markdown → readable plain text (for one-line note previews). */
+function stripMarkdown(md: string): string {
+  return md
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/(\*\*|__|\*|_|~~|`+)/g, "")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s{0,3}>\s?/gm, "")
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 type TabValue = "all" | "today" | "upcoming" | "overdue" | "completed";
 type DueChoice = "none" | "today" | "tomorrow";
@@ -507,7 +521,7 @@ function TodoRow({
         {todo.notes && (
           <p className="mt-0.5 flex items-start gap-1 text-xs leading-snug text-muted-foreground/80">
             <FileText className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
-            <span className="line-clamp-1">{todo.notes}</span>
+            <span className="line-clamp-1">{stripMarkdown(todo.notes)}</span>
           </p>
         )}
         <div
@@ -723,12 +737,12 @@ function EditTaskDialog({
             <label htmlFor="edit-notes" className={labelClass}>
               Notes
             </label>
-            <Textarea
+            <RichEditor
               id="edit-notes"
-              rows={3}
-              placeholder="Add notes (optional)"
               value={notes}
-              onChange={(e) => setNotes(e.target.value)}
+              onChange={setNotes}
+              placeholder="Add notes (optional) — formatting shows as you type"
+              minHeight={110}
             />
           </div>
 

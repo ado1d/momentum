@@ -4,17 +4,10 @@ import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
-  Bold,
-  Code,
   Download,
   Ellipsis,
-  Eye,
   FileText,
-  Italic,
-  Link as LinkIcon,
   Link2,
-  List,
-  ListOrdered,
   Loader2,
   Pencil,
   Pin,
@@ -23,8 +16,6 @@ import {
   Printer,
   Search,
   StickyNote,
-  Strikethrough,
-  TextQuote,
   Trash2,
   TriangleAlert,
   X,
@@ -65,11 +56,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
 
 import { EmptyState } from "@/components/app/shared/empty-state";
 import { ViewHeader } from "@/components/app/shared/view-header";
 import { extractWikiTitles, MarkdownContent } from "@/components/app/shared/markdown";
+import {
+  RichEditor,
+  type RichEditorToolbarApi,
+} from "@/components/app/shared/rich-editor";
 import { exportApi, notesApi } from "@/lib/api";
 import { downloadMarkdown, esc, miniMarkdownToHtml, printHtml } from "@/lib/export";
 import { NOTE_COLORS, type Note, type NoteColor, type NoteInput } from "@/lib/types";
@@ -270,48 +264,40 @@ function NoteCard({ note, onOpen, onTogglePin, onDelete, onWikiLink, pinPending 
   );
 }
 
-// ── Editor formatting toolbar ───────────────────────────────
+// ── Note editor dialog ───────────────────────────────
 
-function ToolbarButton({
-  label,
-  onPress,
-  emerald,
-  children,
-}: {
-  label: string;
-  onPress: () => void;
-  emerald?: boolean;
-  children: React.ReactNode;
-}) {
+/** Toolbar item for the note editor: wraps the selection (or inserts) a
+ *  [[wiki-link]] that navigates to another note. */
+function WikiLinkToolbarButton({
+  insertMarkdown,
+}: RichEditorToolbarApi) {
   return (
     <button
       type="button"
-      aria-label={label}
-      title={label}
-      // Preventing mousedown's default keeps focus in the textarea, so
-      // the text selection is still intact when the click handler runs.
+      aria-label="Link to another note"
+      title="Link to another note — [[Note title]]"
+      // Keep focus (and the selection) inside the editor on click.
       onMouseDown={(e) => e.preventDefault()}
-      onClick={onPress}
-      className={cn(
-        "flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 sm:size-7",
-        emerald && "hover:text-primary"
-      )}
+      onClick={() => {
+        // Read the live DOM selection (the editor keeps it thanks to the
+        // prevented mousedown). Only wrap text selected INSIDE this editor.
+        const sel = window.getSelection();
+        const editorEl = document.querySelector(
+          ".rich-editor-root [contenteditable]"
+        );
+        let text = "";
+        if (sel && !sel.isCollapsed && editorEl?.contains(sel.anchorNode)) {
+          // wiki-links are single-line; collapse paragraph breaks
+          text = sel.toString().trim().replace(/\s*\n+\s*/g, " ");
+        }
+        insertMarkdown(text ? `[[${text}]]` : "[[]]");
+      }}
+      className="rich-editor-toolbtn"
     >
-      {children}
+      <Link2 className="size-3.5" aria-hidden="true" />
     </button>
   );
 }
-
-function ToolbarDivider() {
-  return (
-    <span
-      aria-hidden="true"
-      className="mx-0.5 h-4 w-px shrink-0 self-center bg-border"
-    />
-  );
-}
-
-// ── Note editor dialog ───────────────────────────────────────
 
 interface NoteFormValues {
   title: string;
@@ -359,103 +345,15 @@ function NoteDialog({
   onWikiLink,
 }: NoteDialogProps) {
   const [values, setValues] = React.useState<NoteFormValues>(emptyNoteForm);
-  const [preview, setPreview] = React.useState(false);
 
   React.useEffect(() => {
     if (open) {
       setValues(note ? noteToForm(note) : emptyNoteForm());
-      setPreview(false);
     }
   }, [open, note]);
 
   const set = <K extends keyof NoteFormValues>(key: K, value: NoteFormValues[K]) =>
     setValues((prev) => ({ ...prev, [key]: value }));
-
-  // ── Formatting toolbar plumbing ──
-
-  const contentRef = React.useRef<HTMLTextAreaElement | null>(null);
-  const pendingSelection = React.useRef<{ start: number; end: number } | null>(null);
-
-  // After a toolbar action rewrites the content, restore the selection:
-  // re-select the wrapped text, or park the caret between the markers.
-  React.useLayoutEffect(() => {
-    const el = contentRef.current;
-    const next = pendingSelection.current;
-    if (el && next) {
-      pendingSelection.current = null;
-      el.focus();
-      el.setSelectionRange(next.start, next.end);
-    }
-  }, [values.content]);
-
-  const replaceSelection = (
-    start: number,
-    end: number,
-    replacement: string,
-    selection: { start: number; end: number }
-  ) => {
-    const el = contentRef.current;
-    if (!el) return;
-    set("content", el.value.slice(0, start) + replacement + el.value.slice(end));
-    pendingSelection.current = selection;
-  };
-
-  /** Wrap the selection with a marker pair: `**sel**`, `` `sel` ``, `[[sel]]`… */
-  const wrapSelection = (open: string, close: string = open) => {
-    const el = contentRef.current;
-    if (!el) return;
-    const start = el.selectionStart;
-    const end = el.selectionEnd;
-    const selected = el.value.slice(start, end);
-    const inner = start + open.length;
-    replaceSelection(start, end, open + selected + close, {
-      start: inner,
-      end: selected ? end + open.length : inner,
-    });
-  };
-
-  /** Wrap the selection as `[sel](url)` — the `url` placeholder ends up selected. */
-  const insertLink = () => {
-    const el = contentRef.current;
-    if (!el) return;
-    const start = el.selectionStart;
-    const end = el.selectionEnd;
-    const selected = el.value.slice(start, end);
-    if (selected) {
-      const urlStart = start + selected.length + 3; // "[" + text + "]("
-      replaceSelection(start, end, `[${selected}](url)`, {
-        start: urlStart,
-        end: urlStart + 3,
-      });
-    } else {
-      replaceSelection(start, end, "[](url)", { start: start + 1, end: start + 1 });
-    }
-  };
-
-  /** Wrap the selection as `[[sel]]` — a link to another note. */
-  const insertNoteLink = () => {
-    wrapSelection("[[", "]]");
-  };
-
-  /** Prefix every selected line (`- `, `1. `, `> `). */
-  const prefixLines = (prefix: (index: number) => string) => {
-    const el = contentRef.current;
-    if (!el) return;
-    const start = el.selectionStart;
-    const end = el.selectionEnd;
-    const lineStart = start === 0 ? 0 : el.value.lastIndexOf("\n", start - 1) + 1;
-    const newlineAfter = el.value.indexOf("\n", end);
-    const lineEnd = newlineAfter === -1 ? el.value.length : newlineAfter;
-    const prefixed = el.value
-      .slice(lineStart, lineEnd)
-      .split("\n")
-      .map((line, i) => prefix(i) + line)
-      .join("\n");
-    replaceSelection(lineStart, lineEnd, prefixed, {
-      start: lineStart,
-      end: lineStart + prefixed.length,
-    });
-  };
 
   // ── Backlinks: other notes whose content contains [[current title]] ──
 
@@ -502,111 +400,21 @@ function NoteDialog({
           </div>
 
           <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="note-content">Content</Label>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-8 gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground"
-                onClick={() => setPreview((p) => !p)}
-                aria-pressed={preview}
-              >
-                {preview ? (
-                  <>
-                    <Pencil className="size-3.5" aria-hidden="true" /> Edit
-                  </>
-                ) : (
-                  <>
-                    <Eye className="size-3.5" aria-hidden="true" /> Preview
-                  </>
-                )}
-              </Button>
-            </div>
-            {preview ? (
-              <div className="min-h-[13rem] rounded-xl border bg-muted/30 p-3">
-                <p className="text-sm font-semibold">
-                  {values.title.trim() || "Untitled note"}
-                </p>
-                {values.content.trim() ? (
-                  <MarkdownContent
-                    content={values.content}
-                    className="mt-2"
-                    onWikiLink={onWikiLink}
-                  />
-                ) : (
-                  <p className="mt-2 text-sm italic text-muted-foreground/70">
-                    Nothing to preview yet.
-                  </p>
-                )}
-              </div>
-            ) : (
-              <>
-                <div
-                  role="group"
-                  aria-label="Text formatting"
-                  className="flex gap-0.5 overflow-x-auto rounded-lg border bg-muted/30 p-1"
-                >
-                  <ToolbarButton label="Bold" onPress={() => wrapSelection("**")}>
-                    <Bold className="size-3.5" aria-hidden="true" />
-                  </ToolbarButton>
-                  <ToolbarButton label="Italic" onPress={() => wrapSelection("*")}>
-                    <Italic className="size-3.5" aria-hidden="true" />
-                  </ToolbarButton>
-                  <ToolbarButton label="Strikethrough" onPress={() => wrapSelection("~~")}>
-                    <Strikethrough className="size-3.5" aria-hidden="true" />
-                  </ToolbarButton>
-                  <ToolbarButton label="Code" onPress={() => wrapSelection("`")}>
-                    <Code className="size-3.5" aria-hidden="true" />
-                  </ToolbarButton>
-                  <ToolbarDivider />
-                  <ToolbarButton
-                    label="Bulleted list"
-                    onPress={() => prefixLines(() => "- ")}
-                  >
-                    <List className="size-3.5" aria-hidden="true" />
-                  </ToolbarButton>
-                  <ToolbarButton
-                    label="Numbered list"
-                    onPress={() => prefixLines((i) => `${i + 1}. `)}
-                  >
-                    <ListOrdered className="size-3.5" aria-hidden="true" />
-                  </ToolbarButton>
-                  <ToolbarButton
-                    label="Quote"
-                    onPress={() => prefixLines(() => "> ")}
-                  >
-                    <TextQuote className="size-3.5" aria-hidden="true" />
-                  </ToolbarButton>
-                  <ToolbarDivider />
-                  <ToolbarButton label="Link" onPress={insertLink}>
-                    <LinkIcon className="size-3.5" aria-hidden="true" />
-                  </ToolbarButton>
-                  <ToolbarButton
-                    label="Link to another note"
-                    emerald
-                    onPress={insertNoteLink}
-                  >
-                    <Link2 className="size-3.5" aria-hidden="true" />
-                  </ToolbarButton>
-                </div>
-                <Textarea
-                  ref={contentRef}
-                  id="note-content"
-                  value={values.content}
-                  onChange={(e) => set("content", e.target.value)}
-                  rows={10}
-                  placeholder="Start writing… **bold**, *italics*, lists, `code` — markdown supported"
-                  className="rounded-xl"
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Markdown supported · <span className="text-primary">[[Note title]]</span>{" "}
-                  links to another note
-                </p>
-              </>
-            )}
+            <Label htmlFor="note-content">Content</Label>
+            <RichEditor
+              id="note-content"
+              value={values.content}
+              onChange={(md) => set("content", md)}
+              placeholder="Start writing — formatting appears as you type…"
+              minHeight={220}
+              toolbarExtra={WikiLinkToolbarButton}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Formatting shows live as you type · ⌘B / ⌑ bold · ⌘I italic ·{" "}
+              <span className="text-primary">[[Note title]]</span> links notes
+              together
+            </p>
           </div>
-
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="note-tag">Tag</Label>

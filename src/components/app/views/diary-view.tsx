@@ -52,12 +52,15 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Slider } from "@/components/ui/slider";
-import { Textarea } from "@/components/ui/textarea";
 import { Calendar } from "@/components/ui/calendar";
 
 import { EmptyState } from "@/components/app/shared/empty-state";
 import { ViewHeader } from "@/components/app/shared/view-header";
 import { MarkdownContent } from "@/components/app/shared/markdown";
+import {
+  RichEditor,
+  type RichEditorHandle,
+} from "@/components/app/shared/rich-editor";
 import { exportApi, journalApi, settingsApi } from "@/lib/api";
 import {
   addDaysToKey,
@@ -576,7 +579,7 @@ export function DiaryView() {
   const [entryToDelete, setEntryToDelete] = React.useState<JournalEntry | null>(null);
   const [exporting, setExporting] = React.useState<string | null>(null);
 
-  const contentRef = React.useRef<HTMLTextAreaElement>(null);
+  const contentRef = React.useRef<RichEditorHandle | null>(null);
 
   const entry = entries.find((e) => e.date === date) ?? null;
 
@@ -939,16 +942,17 @@ export function DiaryView() {
 
                 <div className="space-y-1.5">
                   <Label htmlFor="entry-content">Entry</Label>
-                  <Textarea
+                  <RichEditor
                     id="entry-content"
-                    ref={contentRef}
                     value={content}
-                    onChange={(e) => setContent(e.target.value)}
-                    rows={8}
+                    onChange={setContent}
                     placeholder="How was your day? What did you learn, feel, accomplish…"
-                    className="rounded-xl"
+                    minHeight={176}
+                    handleRef={contentRef}
                   />
-                  <p className="text-[11px] text-muted-foreground">Markdown supported</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Formatting shows live as you type — ⌘B bold · ⌘I italic
+                  </p>
                 </div>
               </div>
 

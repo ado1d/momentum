@@ -64,8 +64,12 @@ dev.log
 server.log
 *.log
 agent-ctx/
-worklog.md
 qa-*.png
 download/
 perfect
 --timeout
+
+# QA artifacts + user uploads (local only)
+/qa/
+/tool-results/
+/upload/
