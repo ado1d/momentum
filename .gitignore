@@ -52,3 +52,20 @@ prompt
 server.log
 # Skills directory
 /skills/
+# momentum: local database & env (never commit)
+db/*.db
+db/*.db-journal
+.env
+.env.*
+!.env.example
+
+# momentum: dev-process artifacts
+dev.log
+server.log
+*.log
+agent-ctx/
+worklog.md
+qa-*.png
+download/
+perfect
+--timeout
