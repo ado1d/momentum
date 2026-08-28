@@ -182,6 +182,10 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
+  /* Auth endpoints must NEVER be cached or intercepted — OAuth redirects,
+   * session refreshes and CSRF flows need pristine network round-trips. */
+  if (url.pathname.startsWith("/api/auth/")) return;
+
   if (isApi(url)) {
     event.respondWith(apiNetworkFirst(request));
   } else if (request.mode === "navigate") {

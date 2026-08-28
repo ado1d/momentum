@@ -3,6 +3,7 @@
 // POST /api/routine { name, emoji?, section?, time?, days? } → RoutineTask
 
 import { db } from "@/lib/db";
+import { requireUserId } from "@/lib/server/auth";
 import { handleApiError, json, parseOrThrow, readJsonBody } from "@/lib/server/http";
 import { routineCreateSchema } from "@/lib/server/schemas";
 import {
@@ -22,8 +23,9 @@ const SECTION_WEIGHT: Record<string, number> = {
 
 export async function GET() {
   try {
+    const userId = await requireUserId();
     const [tasks, ctx] = await Promise.all([
-      fetchRoutineTasksWithLogs(),
+      fetchRoutineTasksWithLogs(userId),
       Promise.resolve(routineContext()),
     ]);
     const sorted = tasks.slice().sort((a, b) => {
@@ -39,16 +41,18 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
+    const userId = await requireUserId();
     const input = parseOrThrow(routineCreateSchema, await readJsonBody(req));
 
     const section = input.section ?? "morning";
     const last = await db.routineTask.findFirst({
-      where: { section },
+      where: { userId, section },
       orderBy: { sortOrder: "desc" },
       select: { sortOrder: true },
     });
     const task = await db.routineTask.create({
       data: {
+        userId,
         name: input.name,
         emoji: input.emoji ?? "🌅",
         section,

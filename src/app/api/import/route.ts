@@ -3,8 +3,9 @@
 //
 // Restores a JSON backup produced by GET /api/export?format=json.
 // - merge:   adds only rows that don't exist yet (never overwrites)
-// - replace: wipes all data, then inserts the backup verbatim
+// - replace: wipes the signed-in user's data, then inserts the backup verbatim
 
+import { requireUserId } from "@/lib/server/auth";
 import { handleApiError, HttpError, json, parseOrThrow, readJsonBody } from "@/lib/server/http";
 import { backupSchema, runImport } from "@/lib/server/import-backup";
 import type { ImportResult } from "@/lib/types";
@@ -19,6 +20,7 @@ const importBodySchema = z.object({
 
 export async function POST(req: Request) {
   try {
+    const userId = await requireUserId();
     const body = parseOrThrow(importBodySchema, await readJsonBody(req));
 
     // Validate the backup payload with a dedicated schema — surface a
@@ -48,7 +50,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const outcome = await runImport(parsed.data, body.mode);
+    const outcome = await runImport(parsed.data, body.mode, userId);
 
     const result: ImportResult = {
       ok: true,

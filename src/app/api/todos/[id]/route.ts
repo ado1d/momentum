@@ -4,6 +4,7 @@
 // DELETE /api/todos/:id → { ok: true }
 
 import { db } from "@/lib/db";
+import { requireUserId } from "@/lib/server/auth";
 import type { Prisma } from "@prisma/client";
 import { handleApiError, HttpError, json, parseOrThrow, readJsonBody } from "@/lib/server/http";
 import { nextOccurrence, type RepeatKind } from "@/lib/server/recurrence";
@@ -16,10 +17,11 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export async function PATCH(req: Request, ctx: RouteContext) {
   try {
+    const userId = await requireUserId();
     const { id } = await ctx.params;
     const input = parseOrThrow(todoUpdateSchema, await readJsonBody(req));
 
-    const existing = await db.todo.findUnique({ where: { id } });
+    const existing = await db.todo.findFirst({ where: { id, userId } });
     if (!existing) throw new HttpError("Todo not found", 404);
 
     const data: Prisma.TodoUpdateInput = {};
@@ -59,6 +61,7 @@ export async function PATCH(req: Request, ctx: RouteContext) {
       });
       await db.todo.create({
         data: {
+          userId,
           title: updated.title,
           notes: updated.notes,
           priority: updated.priority,
@@ -88,8 +91,12 @@ export async function PATCH(req: Request, ctx: RouteContext) {
 
 export async function DELETE(_req: Request, ctx: RouteContext) {
   try {
+    const userId = await requireUserId();
     const { id } = await ctx.params;
-    const existing = await db.todo.findUnique({ where: { id }, select: { id: true } });
+    const existing = await db.todo.findFirst({
+      where: { id, userId },
+      select: { id: true },
+    });
     if (!existing) throw new HttpError("Todo not found", 404);
     await db.todo.delete({ where: { id } });
     return json({ ok: true });

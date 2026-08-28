@@ -10,6 +10,7 @@ import { CommandPalette } from "./command-palette";
 import { OnboardingTour } from "./onboarding-tour";
 import { ShortcutsDialog } from "./shortcuts-dialog";
 import { settingsApi } from "@/lib/api";
+import { UserMenu } from "@/components/auth/user-menu";
 import { useUiStore } from "@/lib/store";
 import type { ViewId } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -269,6 +270,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             >
               <Plus className="size-5" />
             </Button>
+            <UserMenu />
           </div>
         </div>
       </header>
@@ -299,7 +301,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               aria-hidden="true"
               className="pointer-events-none absolute -right-6 -top-8 size-20 rounded-full bg-primary/10 blur-2xl"
             />
-            <div className="relative flex items-center justify-between gap-2">
+            {/* Account row: avatar menu (name/email/sign out) + theme toggle */}
+            <div className="relative mb-2.5 flex items-center justify-between gap-2 border-b pb-2.5">
+              <UserMenu />
+              <ThemeToggle />
+            </div>
+            <div className="relative flex items-center">
               <button
                 type="button"
                 onClick={() => navigate("insights")}
@@ -311,7 +318,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   Small steps, big results →
                 </p>
               </button>
-              <ThemeToggle />
             </div>
           </div>
         </aside>

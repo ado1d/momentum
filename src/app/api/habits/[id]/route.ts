@@ -2,6 +2,7 @@
 // DELETE /api/habits/:id → { ok: true }
 
 import { db } from "@/lib/db";
+import { requireUserId } from "@/lib/server/auth";
 import type { Prisma } from "@prisma/client";
 import { handleApiError, HttpError, json, parseOrThrow, readJsonBody } from "@/lib/server/http";
 import { habitUpdateSchema } from "@/lib/server/schemas";
@@ -13,10 +14,11 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export async function PATCH(req: Request, ctx: RouteContext) {
   try {
+    const userId = await requireUserId();
     const { id } = await ctx.params;
     const input = parseOrThrow(habitUpdateSchema, await readJsonBody(req));
 
-    const existing = await db.habit.findUnique({ where: { id }, select: { id: true } });
+    const existing = await db.habit.findFirst({ where: { id, userId }, select: { id: true } });
     if (!existing) throw new HttpError("Habit not found", 404);
 
     const data: Prisma.HabitUpdateInput = {};
@@ -33,7 +35,7 @@ export async function PATCH(req: Request, ctx: RouteContext) {
       data,
       include: { logs: { orderBy: { date: "asc" } } },
     });
-    const serCtx = await habitContext();
+    const serCtx = await habitContext(userId);
     return json(serializeHabit(updated, serCtx));
   } catch (err) {
     return handleApiError(err);
@@ -42,8 +44,9 @@ export async function PATCH(req: Request, ctx: RouteContext) {
 
 export async function DELETE(_req: Request, ctx: RouteContext) {
   try {
+    const userId = await requireUserId();
     const { id } = await ctx.params;
-    const existing = await db.habit.findUnique({ where: { id }, select: { id: true } });
+    const existing = await db.habit.findFirst({ where: { id, userId }, select: { id: true } });
     if (!existing) throw new HttpError("Habit not found", 404);
     await db.habit.delete({ where: { id } }); // logs cascade
     return json({ ok: true });

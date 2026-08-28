@@ -5,6 +5,7 @@
 //   goals are reset — the frontend client sends an empty body.
 
 import { db } from "@/lib/db";
+import { requireUserId } from "@/lib/server/auth";
 import type { Prisma } from "@prisma/client";
 import { handleApiError, json, parseOrThrow, readJsonBody } from "@/lib/server/http";
 import { goalResetSchema } from "@/lib/server/schemas";
@@ -13,10 +14,11 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
+    const userId = await requireUserId();
     const input = parseOrThrow(goalResetSchema, await readJsonBody(req));
     const period = input.period && input.period !== "all" ? input.period : undefined;
 
-    const where: Prisma.GoalWhereInput = { status: { not: "archived" } };
+    const where: Prisma.GoalWhereInput = { userId, status: { not: "archived" } };
     if (period) where.period = period;
 
     await db.goal.updateMany({

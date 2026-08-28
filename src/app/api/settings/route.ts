@@ -1,7 +1,8 @@
-// GET /api/settings → AppSettings (single row id="app", upserted on read)
+// GET /api/settings → AppSettings (one row per user, upserted on read)
 // PATCH /api/settings (partial) → AppSettings
 
 import { db } from "@/lib/db";
+import { requireUserId } from "@/lib/server/auth";
 import type { Prisma } from "@prisma/client";
 import type { AppSettings } from "@/lib/types";
 import { handleApiError, json, parseOrThrow, readJsonBody } from "@/lib/server/http";
@@ -23,7 +24,8 @@ function toAppSettings(row: Settings): AppSettings {
 
 export async function GET() {
   try {
-    const row = await getSettings();
+    const userId = await requireUserId();
+    const row = await getSettings(userId);
     return json(toAppSettings(row));
   } catch (err) {
     return handleApiError(err);
@@ -32,8 +34,9 @@ export async function GET() {
 
 export async function PATCH(req: Request) {
   try {
+    const userId = await requireUserId();
     const input = parseOrThrow(settingsUpdateSchema, await readJsonBody(req));
-    await getSettings(); // ensure the single settings row exists
+    await getSettings(userId); // ensure the user's settings row exists
 
     const data: Prisma.SettingsUpdateInput = {};
     if (input.notificationsEnabled !== undefined) {
@@ -44,7 +47,7 @@ export async function PATCH(req: Request) {
     if (input.defaultView !== undefined) data.defaultView = input.defaultView;
     if (input.onboarded !== undefined) data.onboarded = input.onboarded;
 
-    const updated = await db.settings.update({ where: { id: "app" }, data });
+    const updated = await db.settings.update({ where: { userId }, data });
     return json(toAppSettings(updated));
   } catch (err) {
     return handleApiError(err);

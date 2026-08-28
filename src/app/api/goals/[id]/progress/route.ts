@@ -3,6 +3,7 @@
 //   and reverts to "active" when it drops back below.
 
 import { db } from "@/lib/db";
+import { requireUserId } from "@/lib/server/auth";
 import { handleApiError, HttpError, json, parseOrThrow, readJsonBody } from "@/lib/server/http";
 import { goalProgressSchema } from "@/lib/server/schemas";
 import { serializeGoal } from "@/lib/server/service";
@@ -13,10 +14,11 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export async function POST(req: Request, ctx: RouteContext) {
   try {
+    const userId = await requireUserId();
     const { id } = await ctx.params;
     const input = parseOrThrow(goalProgressSchema, await readJsonBody(req));
 
-    const existing = await db.goal.findUnique({ where: { id } });
+    const existing = await db.goal.findFirst({ where: { id, userId } });
     if (!existing) throw new HttpError("Goal not found", 404);
 
     const progress = Math.min(

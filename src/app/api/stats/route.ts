@@ -14,6 +14,7 @@
 //   (their `days` field contains the ISO weekday) / scheduled & logged that day
 
 import { db } from "@/lib/db";
+import { requireUserId } from "@/lib/server/auth";
 import type { Todo as TodoRow } from "@prisma/client";
 import type { DashboardStats, DayStat } from "@/lib/types";
 import {
@@ -74,18 +75,26 @@ function compareUpcoming(a: TodoRow, b: TodoRow): number {
 
 export async function GET() {
   try {
+    const userId = await requireUserId();
     const today = todayKey();
-    const settings = await getSettings();
+    const settings = await getSettings(userId);
     const weekStart = weekStartKeyOf(today, settings.weekStartsOn);
 
     const [todos, habits, routineTasks, recentJournalRows, journalToday, activeGoalRows] =
       await Promise.all([
-        db.todo.findMany({ include: { subtasks: { orderBy: { sortOrder: "asc" } } } }),
-        fetchHabitsWithLogs(),
-        fetchRoutineTasksWithLogs(),
-        db.journalEntry.findMany({ orderBy: { date: "desc" }, take: 3 }),
-        db.journalEntry.findUnique({ where: { date: today } }),
-        db.goal.findMany({ where: { status: "active" } }),
+        db.todo.findMany({
+          where: { userId },
+          include: { subtasks: { orderBy: { sortOrder: "asc" } } },
+        }),
+        fetchHabitsWithLogs(userId),
+        fetchRoutineTasksWithLogs(userId),
+        db.journalEntry.findMany({
+          where: { userId },
+          orderBy: { date: "desc" },
+          take: 3,
+        }),
+        db.journalEntry.findFirst({ where: { userId, date: today } }),
+        db.goal.findMany({ where: { userId, status: "active" } }),
       ]);
 
     const activeTodos = todos.filter((t) => !t.completed);

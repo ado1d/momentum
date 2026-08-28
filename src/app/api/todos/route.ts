@@ -2,6 +2,7 @@
 // POST /api/todos { title, notes?, priority?, category?, dueDate?, reminderAt? } → Todo
 
 import { db } from "@/lib/db";
+import { requireUserId } from "@/lib/server/auth";
 import type { Prisma, Todo as TodoRow } from "@prisma/client";
 import { handleApiError, json, parseOrThrow, readJsonBody } from "@/lib/server/http";
 import { toNullableDate, todoCreateSchema } from "@/lib/server/schemas";
@@ -54,6 +55,7 @@ function sortTodosForList(
 
 export async function GET(req: Request) {
   try {
+    const userId = await requireUserId();
     const url = new URL(req.url);
     const category = url.searchParams.get("category")?.trim() ?? "";
     const query = parseOrThrow(listQuerySchema, {
@@ -62,7 +64,7 @@ export async function GET(req: Request) {
     });
 
     const status = query.status ?? "active";
-    const where: Prisma.TodoWhereInput = {};
+    const where: Prisma.TodoWhereInput = { userId };
     if (status === "active") where.completed = false;
     else if (status === "completed") where.completed = true;
     if (query.category) where.category = query.category;
@@ -79,9 +81,11 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
+    const userId = await requireUserId();
     const input = parseOrThrow(todoCreateSchema, await readJsonBody(req));
     const todo = await db.todo.create({
       data: {
+        userId,
         title: input.title,
         notes: input.notes ?? null,
         priority: input.priority ?? "medium",

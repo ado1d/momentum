@@ -9,6 +9,7 @@
 // is computed server-side.
 
 import { db } from "@/lib/db";
+import { requireUserId } from "@/lib/server/auth";
 import type { Mood, WeeklyReview } from "@/lib/types";
 import {
   addDaysToKey,
@@ -24,6 +25,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   try {
+    const userId = await requireUserId();
     const url = new URL(req.url);
     const weekParam = url.searchParams.get("week");
     if (weekParam !== null && !isValidDayKey(weekParam)) {
@@ -31,7 +33,7 @@ export async function GET(req: Request) {
     }
 
     const today = todayKey();
-    const settings = await getSettings();
+    const settings = await getSettings(userId);
     const anchor = weekParam ?? today;
     const weekStart = weekStartKeyOf(anchor, settings.weekStartsOn);
     const prevWeekStart = addDaysToKey(weekStart, -7);
@@ -40,12 +42,12 @@ export async function GET(req: Request) {
     const prevWeekKeys = Array.from({ length: 7 }, (_, i) => addDaysToKey(prevWeekStart, i));
 
     const [todos, habits, routineTasks, journal, goals, focusSessions] = await Promise.all([
-      db.todo.findMany(),
-      fetchHabitsWithLogs(),
-      fetchRoutineTasksWithLogs(),
-      db.journalEntry.findMany({ orderBy: { date: "desc" } }),
-      db.goal.findMany({ where: { status: "active" }, orderBy: { createdAt: "asc" } }),
-      db.focusSession.findMany(),
+      db.todo.findMany({ where: { userId } }),
+      fetchHabitsWithLogs(userId),
+      fetchRoutineTasksWithLogs(userId),
+      db.journalEntry.findMany({ where: { userId }, orderBy: { date: "desc" } }),
+      db.goal.findMany({ where: { userId, status: "active" }, orderBy: { createdAt: "asc" } }),
+      db.focusSession.findMany({ where: { userId } }),
     ]);
 
     const activeTodos = todos.filter((t) => !t.completed);

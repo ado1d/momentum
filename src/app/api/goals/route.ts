@@ -4,6 +4,7 @@
 //                   startDate?, endDate? } → Goal
 
 import { db } from "@/lib/db";
+import { requireUserId } from "@/lib/server/auth";
 import type { Prisma } from "@prisma/client";
 import { todayKey } from "@/lib/server/daykeys";
 import { handleApiError, json, parseOrThrow, readJsonBody } from "@/lib/server/http";
@@ -22,13 +23,14 @@ const listQuerySchema = z.object({
 
 export async function GET(req: Request) {
   try {
+    const userId = await requireUserId();
     const url = new URL(req.url);
     const query = parseOrThrow(listQuerySchema, {
       status: url.searchParams.get("status") ?? undefined,
       period: url.searchParams.get("period") ?? undefined,
     });
 
-    const where: Prisma.GoalWhereInput = {};
+    const where: Prisma.GoalWhereInput = { userId };
     if (query.status && query.status !== "all") where.status = query.status;
     if (query.period && query.period !== "all") where.period = query.period;
 
@@ -46,9 +48,11 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
+    const userId = await requireUserId();
     const input = parseOrThrow(goalCreateSchema, await readJsonBody(req));
     const goal = await db.goal.create({
       data: {
+        userId,
         title: input.title,
         description: input.description ?? null,
         category: input.category ?? "learning",

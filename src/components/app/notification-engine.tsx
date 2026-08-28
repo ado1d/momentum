@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { habitsApi, routineApi, todosApi } from "@/lib/api";
 import { computeDueReminders } from "@/lib/notifications";
@@ -9,22 +10,29 @@ import { computeDueReminders } from "@/lib/notifications";
 /**
  * Invisible component: while the app is open, checks every 60s for
  * reminders that are due and fires browser notifications + toasts.
+ * Polling is disabled while signed out (all APIs would 401).
  */
 export function NotificationEngine() {
+  const { status } = useSession();
+  const authed = status === "authenticated";
+
   const { data: todos } = useQuery({
     queryKey: ["todos", "all"],
     queryFn: () => todosApi.list({ status: "active" }),
-    refetchInterval: 120_000,
+    enabled: authed,
+    refetchInterval: authed ? 120_000 : false,
   });
   const { data: habits } = useQuery({
     queryKey: ["habits"],
     queryFn: habitsApi.list,
-    refetchInterval: 120_000,
+    enabled: authed,
+    refetchInterval: authed ? 120_000 : false,
   });
   const { data: routine } = useQuery({
     queryKey: ["routine"],
     queryFn: routineApi.list,
-    refetchInterval: 120_000,
+    enabled: authed,
+    refetchInterval: authed ? 120_000 : false,
   });
 
   const firedRef = React.useRef(0);

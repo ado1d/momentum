@@ -1,6 +1,7 @@
 // POST /api/routine/:id/toggle { date: "YYYY-MM-DD" } → { done, streak? }
 
 import { db } from "@/lib/db";
+import { requireUserId } from "@/lib/server/auth";
 import { computeStreak, todayKey } from "@/lib/server/daykeys";
 import { handleApiError, HttpError, json, parseOrThrow, readJsonBody } from "@/lib/server/http";
 import { toggleSchema } from "@/lib/server/schemas";
@@ -11,10 +12,11 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export async function POST(req: Request, ctx: RouteContext) {
   try {
+    const userId = await requireUserId();
     const { id } = await ctx.params;
     const { date } = parseOrThrow(toggleSchema, await readJsonBody(req));
 
-    const task = await db.routineTask.findUnique({ where: { id }, select: { id: true } });
+    const task = await db.routineTask.findFirst({ where: { id, userId }, select: { id: true } });
     if (!task) throw new HttpError("Routine task not found", 404);
 
     const existing = await db.routineLog.findUnique({

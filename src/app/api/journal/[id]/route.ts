@@ -5,6 +5,7 @@
 // DELETE /api/journal/:id → { ok: true }
 
 import { db } from "@/lib/db";
+import { requireUserId } from "@/lib/server/auth";
 import { isValidDayKey } from "@/lib/server/daykeys";
 import { handleApiError, HttpError, json } from "@/lib/server/http";
 import { serializeJournalEntry } from "@/lib/server/service";
@@ -15,10 +16,11 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export async function GET(_req: Request, ctx: RouteContext) {
   try {
+    const userId = await requireUserId();
     const { id } = await ctx.params;
     const entry = isValidDayKey(id)
-      ? await db.journalEntry.findUnique({ where: { date: id } })
-      : await db.journalEntry.findUnique({ where: { id } });
+      ? await db.journalEntry.findFirst({ where: { userId, date: id } })
+      : await db.journalEntry.findFirst({ where: { userId, id } });
     return json(entry ? serializeJournalEntry(entry) : null);
   } catch (err) {
     return handleApiError(err);
@@ -27,9 +29,10 @@ export async function GET(_req: Request, ctx: RouteContext) {
 
 export async function DELETE(_req: Request, ctx: RouteContext) {
   try {
+    const userId = await requireUserId();
     const { id } = await ctx.params;
-    const existing = await db.journalEntry.findUnique({
-      where: { id },
+    const existing = await db.journalEntry.findFirst({
+      where: { userId, id },
       select: { id: true },
     });
     if (!existing) throw new HttpError("Journal entry not found", 404);

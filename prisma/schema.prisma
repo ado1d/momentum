@@ -1,13 +1,36 @@
 // Momentum — Productivity Companion
-// Prisma schema (SQLite)
+// Prisma schema (PostgreSQL — hosted on Neon, multi-user via NextAuth Google)
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // pooled connection (runtime)
+  directUrl = env("DIRECT_URL") // direct connection (migrations / db push)
+}
+
+// ─────────────────────────────────────────────────────────────
+// Users (Google sign-in via NextAuth, JWT strategy)
+// ─────────────────────────────────────────────────────────────
+model User {
+  id            String   @id @default(cuid())
+  name          String?
+  email         String   @unique
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  todos       Todo[]
+  habits      Habit[]
+  routines    RoutineTask[]
+  notes       Note[]
+  journal     JournalEntry[]
+  goals       Goal[]
+  focusSessions FocusSession[]
+  settings    Settings[]
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -15,6 +38,8 @@ datasource db {
 // ─────────────────────────────────────────────────────────────
 model Todo {
   id          String     @id @default(cuid())
+  userId      String
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   title       String
   notes       String?
   priority    String     @default("medium") // low | medium | high | urgent
@@ -28,7 +53,7 @@ model Todo {
   updatedAt   DateTime   @updatedAt
   subtasks    Subtask[]
 
-  @@index([completed, dueDate])
+  @@index([userId, completed, dueDate])
 }
 
 model Subtask {
@@ -49,6 +74,8 @@ model Subtask {
 // ─────────────────────────────────────────────────────────────
 model Habit {
   id           String      @id @default(cuid())
+  userId       String
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   name         String
   emoji        String      @default("✅")
   color        String      @default("emerald") // emerald | amber | rose | violet | teal | orange
@@ -60,7 +87,7 @@ model Habit {
   createdAt    DateTime    @default(now())
   logs         HabitLog[]
 
-  @@index([archived])
+  @@index([userId, archived])
 }
 
 model HabitLog {
@@ -79,6 +106,8 @@ model HabitLog {
 // ─────────────────────────────────────────────────────────────
 model RoutineTask {
   id        String       @id @default(cuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   name      String
   emoji     String       @default("🌅")
   section   String       @default("morning") // morning | afternoon | evening
@@ -89,7 +118,7 @@ model RoutineTask {
   createdAt DateTime     @default(now())
   logs      RoutineLog[]
 
-  @@index([archived, section])
+  @@index([userId, archived, section])
 }
 
 model RoutineLog {
@@ -107,6 +136,8 @@ model RoutineLog {
 // ─────────────────────────────────────────────────────────────
 model Note {
   id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   title     String   @default("Untitled note")
   content   String   @default("")
   tag       String?
@@ -115,7 +146,7 @@ model Note {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([pinned, updatedAt])
+  @@index([userId, pinned, updatedAt])
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -123,7 +154,9 @@ model Note {
 // ─────────────────────────────────────────────────────────────
 model JournalEntry {
   id        String   @id @default(cuid())
-  date      String   @unique // YYYY-MM-DD
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date      String // YYYY-MM-DD (unique per user)
   title     String?
   content   String   @default("")
   mood      String? // great | good | okay | low | rough
@@ -132,7 +165,8 @@ model JournalEntry {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([date])
+  @@unique([userId, date])
+  @@index([userId, date])
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -140,6 +174,8 @@ model JournalEntry {
 // ─────────────────────────────────────────────────────────────
 model Goal {
   id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   title       String
   description String?
   category    String   @default("learning") // learning | fitness | career | personal | finance | other
@@ -153,7 +189,7 @@ model Goal {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@index([status, period])
+  @@index([userId, status, period])
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -161,6 +197,8 @@ model Goal {
 // ─────────────────────────────────────────────────────────────
 model FocusSession {
   id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   taskId    String? // optional linked todo
   label     String? // free-text focus subject
   minutes   Int
@@ -168,15 +206,17 @@ model FocusSession {
   endedAt   DateTime
   createdAt DateTime @default(now())
 
-  @@index([endedAt])
+  @@index([userId, endedAt])
   @@index([taskId])
 }
 
 // ─────────────────────────────────────────────────────────────
-// Settings (single-row app settings)
+// Settings (one row per user)
 // ─────────────────────────────────────────────────────────────
 model Settings {
-  id                   String   @id @default("app")
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   notificationsEnabled Boolean  @default(true)
   soundEnabled         Boolean  @default(true)
   weekStartsOn         Int      @default(1) // 0 = Sunday

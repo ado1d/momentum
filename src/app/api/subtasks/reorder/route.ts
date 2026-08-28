@@ -6,6 +6,7 @@
 import { z } from "zod";
 
 import { db } from "@/lib/db";
+import { requireUserId } from "@/lib/server/auth";
 import { handleApiError, HttpError, json, parseOrThrow, readJsonBody } from "@/lib/server/http";
 
 export const dynamic = "force-dynamic";
@@ -20,10 +21,13 @@ const reorderSchema = z.object({
 
 export async function POST(req: Request) {
   try {
+    const userId = await requireUserId();
     const input = parseOrThrow(reorderSchema, await readJsonBody(req));
 
+    // Only the user's own subtasks (ownership via the parent todo) are
+    // visible; foreign ids behave like unknown ids.
     const found = await db.subtask.findMany({
-      where: { id: { in: input.ids } },
+      where: { id: { in: input.ids }, todo: { userId } },
       select: { id: true, todoId: true },
     });
     const byId = new Map(found.map((s) => [s.id, s]));

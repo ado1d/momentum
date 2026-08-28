@@ -59,6 +59,13 @@ async function request<T>(
       body && typeof body === "object" && "error" in body
         ? String((body as { error: unknown }).error)
         : `Request failed (${res.status})`;
+    // 401 → notify the app (providers.tsx listens for "momentum:unauthorized"
+    // and cancels/clears the TanStack cache, stopping retry storms). We do NOT
+    // force signOut here — the session may still be valid while one route
+    // hiccuped; useSession polling + page.tsx gating decide the final state.
+    if (res.status === 401 && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("momentum:unauthorized"));
+    }
     throw new ApiError(message, res.status);
   }
   return body as T;

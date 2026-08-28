@@ -6,6 +6,7 @@
 //   current value on update, explicit null clears them)
 
 import { db } from "@/lib/db";
+import { requireUserId } from "@/lib/server/auth";
 import type { Prisma } from "@prisma/client";
 import { handleApiError, json, parseOrThrow, readJsonBody } from "@/lib/server/http";
 import { journalUpsertSchema } from "@/lib/server/schemas";
@@ -25,6 +26,7 @@ const listQuerySchema = z.object({
 
 export async function GET(req: Request) {
   try {
+    const userId = await requireUserId();
     const url = new URL(req.url);
     const rawLimit = url.searchParams.get("limit");
     const rawMonth = url.searchParams.get("month");
@@ -42,6 +44,7 @@ export async function GET(req: Request) {
       const lastDay = new Date(year, month, 0).getDate();
       const entries = await db.journalEntry.findMany({
         where: {
+          userId,
           date: {
             gte: `${query.month}-01`,
             lte: `${query.month}-${String(lastDay).padStart(2, "0")}`,
@@ -53,6 +56,7 @@ export async function GET(req: Request) {
     }
 
     const entries = await db.journalEntry.findMany({
+      where: { userId },
       orderBy: { date: "desc" },
       take: query.limit ?? 50,
     });
@@ -64,6 +68,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
+    const userId = await requireUserId();
     const input = parseOrThrow(journalUpsertSchema, await readJsonBody(req));
 
     const update: Prisma.JournalEntryUpdateInput = {};
@@ -74,8 +79,9 @@ export async function POST(req: Request) {
     if (input.gratitude !== undefined) update.gratitude = input.gratitude;
 
     const entry = await db.journalEntry.upsert({
-      where: { date: input.date },
+      where: { userId_date: { userId, date: input.date } },
       create: {
+        userId,
         date: input.date,
         title: input.title ?? null,
         content: input.content ?? "",

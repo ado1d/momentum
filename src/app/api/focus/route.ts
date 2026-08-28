@@ -9,6 +9,7 @@
 // startedAt/endedAt default to "now - minutes" / "now" when omitted.
 
 import { db } from "@/lib/db";
+import { requireUserId } from "@/lib/server/auth";
 import type { FocusSession, FocusStats, FocusSessionWithTask } from "@/lib/types";
 import {
   addDaysToKey,
@@ -53,12 +54,13 @@ function serializeSession(s: {
 
 export async function GET() {
   try {
+    const userId = await requireUserId();
     const today = todayKey();
-    const settings = await getSettings();
+    const settings = await getSettings(userId);
     const weekStart = weekStartKeyOf(today, settings.weekStartsOn);
     const lastWeekStart = addDaysToKey(weekStart, -7);
 
-    const sessions = await db.focusSession.findMany();
+    const sessions = await db.focusSession.findMany({ where: { userId } });
 
     const minutesOn = (key: string) =>
       sessions
@@ -78,7 +80,7 @@ export async function GET() {
     const tasks =
       taskIds.length > 0
         ? await db.todo.findMany({
-            where: { id: { in: taskIds } },
+            where: { id: { in: taskIds }, userId },
             select: { id: true, title: true },
           })
         : [];
@@ -118,6 +120,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
+    const userId = await requireUserId();
     const input = parseOrThrow(focusCreateSchema, await readJsonBody(req));
     const endedAt = input.endedAt ? new Date(input.endedAt) : new Date();
     const startedAt = input.startedAt
@@ -128,14 +131,15 @@ export async function POST(req: Request) {
       return json({ error: "startedAt/endedAt must be valid datetimes" }, 400);
     }
 
-    // taskId, when present, must reference an existing todo
+    // taskId, when present, must reference one of the user's own todos
     if (input.taskId) {
-      const todo = await db.todo.findUnique({ where: { id: input.taskId } });
+      const todo = await db.todo.findFirst({ where: { id: input.taskId, userId } });
       if (!todo) return json({ error: "Task not found" }, 404);
     }
 
     const session = await db.focusSession.create({
       data: {
+        userId,
         taskId: input.taskId ?? null,
         label: input.label ?? null,
         minutes: input.minutes,

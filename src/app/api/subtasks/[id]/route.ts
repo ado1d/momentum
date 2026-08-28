@@ -2,6 +2,7 @@
 // DELETE /api/subtasks/:id → { ok: true }
 
 import { db } from "@/lib/db";
+import { requireUserId } from "@/lib/server/auth";
 import { handleApiError, HttpError, json, parseOrThrow, readJsonBody } from "@/lib/server/http";
 import { subtaskUpdateSchema } from "@/lib/server/schemas";
 import { serializeSubtask } from "@/lib/server/service";
@@ -12,10 +13,15 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export async function PATCH(req: Request, ctx: RouteContext) {
   try {
+    const userId = await requireUserId();
     const { id } = await ctx.params;
     const input = parseOrThrow(subtaskUpdateSchema, await readJsonBody(req));
 
-    const existing = await db.subtask.findUnique({ where: { id }, select: { id: true } });
+    // Ownership flows through the parent todo.
+    const existing = await db.subtask.findFirst({
+      where: { id, todo: { userId } },
+      select: { id: true },
+    });
     if (!existing) throw new HttpError("Subtask not found", 404);
 
     const updated = await db.subtask.update({
@@ -33,8 +39,12 @@ export async function PATCH(req: Request, ctx: RouteContext) {
 
 export async function DELETE(_req: Request, ctx: RouteContext) {
   try {
+    const userId = await requireUserId();
     const { id } = await ctx.params;
-    const existing = await db.subtask.findUnique({ where: { id }, select: { id: true } });
+    const existing = await db.subtask.findFirst({
+      where: { id, todo: { userId } },
+      select: { id: true },
+    });
     if (!existing) throw new HttpError("Subtask not found", 404);
 
     await db.subtask.delete({ where: { id } });

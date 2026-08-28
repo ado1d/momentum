@@ -3,7 +3,7 @@
 // required by the contract in src/lib/types.ts.
 
 import { db } from "@/lib/db";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import type {
   Goal as GoalRow,
   Habit as HabitBaseRow,
@@ -23,6 +23,7 @@ import type {
   Todo,
 } from "@/lib/types";
 import { addDaysToKey, computeStreak, isoWeekdayOfKey, todayKey, weekStartKeyOf } from "./daykeys";
+import { HttpError } from "./http";
 
 export type HabitWithLogs = HabitBaseRow & { logs: { id: string; habitId: string; date: string }[] };
 export type RoutineTaskWithLogs = RoutineTaskBaseRow & {
@@ -52,29 +53,40 @@ export function serializeSubtask(s: SubtaskRow): Subtask {
 /** Number of days of habit/routine logs returned in list responses. */
 export const LOG_WINDOW_DAYS = 60;
 
-/** The single settings row (id "app"), upserted with defaults when missing. */
-export async function getSettings() {
-  return db.settings.upsert({
-    where: { id: "app" },
-    create: { id: "app" },
-    update: {},
-  });
+/** The user's settings row (one per user), upserted with defaults when missing.
+ *  A session whose User row was deleted server-side (stale cookie) resolves
+ *  to 401 instead of an FK-violation 500. */
+export async function getSettings(userId: string) {
+  try {
+    return await db.settings.upsert({
+      where: { userId },
+      create: { userId },
+      update: {},
+    });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003") {
+      throw new HttpError("Sign in to use Momentum", 401);
+    }
+    throw err;
+  }
 }
 
-/** Non-archived habits (sortOrder ASC) with ALL logs — streaks stay exact;
- *  serializeHabit trims the returned log window to the last 60 days. */
-export async function fetchHabitsWithLogs(): Promise<HabitWithLogs[]> {
+/** Non-archived habits of the user (sortOrder ASC) with ALL logs — streaks
+ *  stay exact; serializeHabit trims the returned log window to 60 days. */
+export async function fetchHabitsWithLogs(userId: string): Promise<HabitWithLogs[]> {
   return db.habit.findMany({
-    where: { archived: false },
+    where: { userId, archived: false },
     orderBy: { sortOrder: "asc" },
     include: { logs: { orderBy: { date: "asc" } } },
   });
 }
 
-/** Non-archived routine tasks (sortOrder ASC) with all logs. */
-export async function fetchRoutineTasksWithLogs(): Promise<RoutineTaskWithLogs[]> {
+/** Non-archived routine tasks of the user (sortOrder ASC) with all logs. */
+export async function fetchRoutineTasksWithLogs(
+  userId: string,
+): Promise<RoutineTaskWithLogs[]> {
   return db.routineTask.findMany({
-    where: { archived: false },
+    where: { userId, archived: false },
     orderBy: { sortOrder: "asc" },
     include: { logs: { orderBy: { date: "asc" } } },
   });
@@ -94,9 +106,11 @@ export function routineContext(): { today: string } {
   return { today: todayKey() };
 }
 
-export async function habitContext(): Promise<{ today: string; weekStart: string }> {
+export async function habitContext(
+  userId: string,
+): Promise<{ today: string; weekStart: string }> {
   const today = todayKey();
-  const settings = await getSettings();
+  const settings = await getSettings(userId);
   return { today, weekStart: weekStartKeyOf(today, settings.weekStartsOn) };
 }
 

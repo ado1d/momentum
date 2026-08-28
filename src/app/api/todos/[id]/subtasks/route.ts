@@ -2,6 +2,7 @@
 // GET  /api/todos/:id/subtasks → Subtask[] (sortOrder ASC)
 
 import { db } from "@/lib/db";
+import { requireUserId } from "@/lib/server/auth";
 import { handleApiError, HttpError, json, parseOrThrow, readJsonBody } from "@/lib/server/http";
 import { subtaskCreateSchema } from "@/lib/server/schemas";
 import { serializeSubtask } from "@/lib/server/service";
@@ -12,10 +13,11 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export async function POST(req: Request, ctx: RouteContext) {
   try {
+    const userId = await requireUserId();
     const { id } = await ctx.params;
     const input = parseOrThrow(subtaskCreateSchema, await readJsonBody(req));
 
-    const todo = await db.todo.findUnique({ where: { id }, select: { id: true } });
+    const todo = await db.todo.findFirst({ where: { id, userId }, select: { id: true } });
     if (!todo) throw new HttpError("Todo not found", 404);
 
     const last = await db.subtask.findFirst({
@@ -35,8 +37,9 @@ export async function POST(req: Request, ctx: RouteContext) {
 
 export async function GET(_req: Request, ctx: RouteContext) {
   try {
+    const userId = await requireUserId();
     const { id } = await ctx.params;
-    const todo = await db.todo.findUnique({ where: { id }, select: { id: true } });
+    const todo = await db.todo.findFirst({ where: { id, userId }, select: { id: true } });
     if (!todo) throw new HttpError("Todo not found", 404);
 
     const subtasks = await db.subtask.findMany({

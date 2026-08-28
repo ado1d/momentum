@@ -2,6 +2,7 @@
 // DELETE /api/routine/:id → { ok: true }
 
 import { db } from "@/lib/db";
+import { requireUserId } from "@/lib/server/auth";
 import type { Prisma } from "@prisma/client";
 import { handleApiError, HttpError, json, parseOrThrow, readJsonBody } from "@/lib/server/http";
 import { routineUpdateSchema } from "@/lib/server/schemas";
@@ -13,10 +14,11 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export async function PATCH(req: Request, ctx: RouteContext) {
   try {
+    const userId = await requireUserId();
     const { id } = await ctx.params;
     const input = parseOrThrow(routineUpdateSchema, await readJsonBody(req));
 
-    const existing = await db.routineTask.findUnique({ where: { id }, select: { id: true } });
+    const existing = await db.routineTask.findFirst({ where: { id, userId }, select: { id: true } });
     if (!existing) throw new HttpError("Routine task not found", 404);
 
     const data: Prisma.RoutineTaskUpdateInput = {};
@@ -41,9 +43,10 @@ export async function PATCH(req: Request, ctx: RouteContext) {
 
 export async function DELETE(_req: Request, ctx: RouteContext) {
   try {
+    const userId = await requireUserId();
     const { id } = await ctx.params;
-    const existing = await db.routineTask.findUnique({
-      where: { id },
+    const existing = await db.routineTask.findFirst({
+      where: { id, userId },
       select: { id: true },
     });
     if (!existing) throw new HttpError("Routine task not found", 404);

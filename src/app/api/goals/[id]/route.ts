@@ -5,6 +5,7 @@
 // DELETE /api/goals/:id → { ok: true }
 
 import { db } from "@/lib/db";
+import { requireUserId } from "@/lib/server/auth";
 import type { Prisma } from "@prisma/client";
 import { handleApiError, HttpError, json, parseOrThrow, readJsonBody } from "@/lib/server/http";
 import { goalUpdateSchema } from "@/lib/server/schemas";
@@ -16,10 +17,11 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export async function PATCH(req: Request, ctx: RouteContext) {
   try {
+    const userId = await requireUserId();
     const { id } = await ctx.params;
     const input = parseOrThrow(goalUpdateSchema, await readJsonBody(req));
 
-    const existing = await db.goal.findUnique({ where: { id } });
+    const existing = await db.goal.findFirst({ where: { id, userId } });
     if (!existing) throw new HttpError("Goal not found", 404);
 
     const data: Prisma.GoalUpdateInput = {};
@@ -56,8 +58,9 @@ export async function PATCH(req: Request, ctx: RouteContext) {
 
 export async function DELETE(_req: Request, ctx: RouteContext) {
   try {
+    const userId = await requireUserId();
     const { id } = await ctx.params;
-    const existing = await db.goal.findUnique({ where: { id }, select: { id: true } });
+    const existing = await db.goal.findFirst({ where: { id, userId }, select: { id: true } });
     if (!existing) throw new HttpError("Goal not found", 404);
     await db.goal.delete({ where: { id } });
     return json({ ok: true });

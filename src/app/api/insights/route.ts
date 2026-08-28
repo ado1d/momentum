@@ -13,6 +13,7 @@
 //   round(50*todosDone/todosTotal + 30*habitsDone/habitsTotal + 20*routineDone/routineTotal)
 
 import { db } from "@/lib/db";
+import { requireUserId } from "@/lib/server/auth";
 import type { InsightsData, Mood } from "@/lib/types";
 import {
   addDaysToKey,
@@ -32,17 +33,18 @@ const TREND_DAYS = 30;
 
 export async function GET() {
   try {
+    const userId = await requireUserId();
     const today = todayKey();
-    const settings = await getSettings();
+    const settings = await getSettings(userId);
     const weekStart = weekStartKeyOf(today, settings.weekStartsOn);
     const lastWeekStart = addDaysToKey(weekStart, -7);
 
     const [todos, habits, routineTasks, journal, focusSessions] = await Promise.all([
-      db.todo.findMany(),
-      fetchHabitsWithLogs(),
-      fetchRoutineTasksWithLogs(),
-      db.journalEntry.findMany(),
-      db.focusSession.findMany(),
+      db.todo.findMany({ where: { userId } }),
+      fetchHabitsWithLogs(userId),
+      fetchRoutineTasksWithLogs(userId),
+      db.journalEntry.findMany({ where: { userId } }),
+      db.focusSession.findMany({ where: { userId } }),
     ]);
 
     const activeTodos = todos.filter((t) => !t.completed);

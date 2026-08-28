@@ -1,11 +1,14 @@
 // Backup import — validates and restores a JSON backup produced by
 // GET /api/export?format=json (round-trip disaster recovery).
 //
-// Two modes:
-//  - "replace": wipe every table, then insert the backup rows verbatim
-//    (ids + timestamps preserved). Settings row is overwritten too.
-//  - "merge":   insert only rows whose id (or journal date) doesn't exist
-//    yet; existing data is never modified. Skipped rows are counted.
+// Two modes (both scoped to the importing user's rows — other users' data is
+// never touched):
+//  - "replace": wipe every one of the user's rows, then insert the backup rows
+//    verbatim (ids + timestamps preserved). The user's settings row is
+//    overwritten too.
+//  - "merge":   insert only rows whose id (or journal date) doesn't exist yet
+//    in the user's data; existing data is never modified. Skipped rows are
+//    counted.
 //
 // Validation is zod-based with tolerant defaults so older backups (e.g.
 // without Todo.repeat or subtasks) still import cleanly. All writes run in
@@ -180,6 +183,7 @@ export interface ImportOutcome {
 export async function runImport(
   payload: BackupPayload,
   mode: "merge" | "replace",
+  userId: string,
 ): Promise<ImportOutcome> {
   const counts: ImportCounts = {
     todos: 0,
@@ -205,24 +209,27 @@ export async function runImport(
     if (t.subtasks.length > 0) subtaskMap.set(t.id, t.subtasks);
   }
 
-  // ── REPLACE: wipe + insert verbatim ────────────────────────
+  // ── REPLACE: wipe the user's rows + insert verbatim ─────────
   if (mode === "replace") {
     await db.$transaction(async (tx) => {
-      // Child tables first (FK order; SQLite cascades would also handle it).
-      await tx.subtask.deleteMany();
-      await tx.todo.deleteMany();
-      await tx.habitLog.deleteMany();
-      await tx.habit.deleteMany();
-      await tx.routineLog.deleteMany();
-      await tx.routineTask.deleteMany();
-      await tx.note.deleteMany();
-      await tx.journalEntry.deleteMany();
-      await tx.goal.deleteMany();
+      // Child tables first (FK order; cascades would also handle it). Every
+      // wipe is scoped to the importing user — other users' rows are never
+      // touched (child tables via their parent relation filter).
+      await tx.subtask.deleteMany({ where: { todo: { userId } } });
+      await tx.todo.deleteMany({ where: { userId } });
+      await tx.habitLog.deleteMany({ where: { habit: { userId } } });
+      await tx.habit.deleteMany({ where: { userId } });
+      await tx.routineLog.deleteMany({ where: { task: { userId } } });
+      await tx.routineTask.deleteMany({ where: { userId } });
+      await tx.note.deleteMany({ where: { userId } });
+      await tx.journalEntry.deleteMany({ where: { userId } });
+      await tx.goal.deleteMany({ where: { userId } });
 
       for (const t of payload.todos) {
         await tx.todo.create({
           data: {
             id: t.id,
+            userId,
             title: t.title,
             notes: t.notes ?? null,
             priority: t.priority,
@@ -257,6 +264,7 @@ export async function runImport(
         await tx.habit.create({
           data: {
             id: h.id,
+            userId,
             name: h.name,
             emoji: h.emoji,
             color: h.color,
@@ -282,6 +290,7 @@ export async function runImport(
         await tx.routineTask.create({
           data: {
             id: t.id,
+            userId,
             name: t.name,
             emoji: t.emoji,
             section: t.section,
@@ -305,6 +314,7 @@ export async function runImport(
         await tx.note.create({
           data: {
             id: n.id,
+            userId,
             title: n.title,
             content: n.content,
             tag: n.tag ?? null,
@@ -321,6 +331,7 @@ export async function runImport(
         await tx.journalEntry.create({
           data: {
             id: e.id,
+            userId,
             date: e.date,
             title: e.title ?? null,
             content: e.content,
@@ -338,6 +349,7 @@ export async function runImport(
         await tx.goal.create({
           data: {
             id: g.id,
+            userId,
             title: g.title,
             description: g.description ?? null,
             category: g.category,
@@ -358,9 +370,9 @@ export async function runImport(
       if (payload.settings) {
         const s = payload.settings;
         await tx.settings.upsert({
-          where: { id: "app" },
+          where: { userId },
           create: {
-            id: "app",
+            userId,
             ...(s.notificationsEnabled !== undefined
               ? { notificationsEnabled: s.notificationsEnabled }
               : {}),
@@ -390,23 +402,36 @@ export async function runImport(
 
   // ── MERGE: add only rows whose id/date doesn't exist yet ────
   await db.$transaction(async (tx) => {
+    // Dupe checks are scoped to the importing user's own rows.
     const existingTodoIds = new Set(
-      (await tx.todo.findMany({ select: { id: true } })).map((t) => t.id),
+      (await tx.todo.findMany({ where: { userId }, select: { id: true } })).map(
+        (t) => t.id,
+      ),
     );
     const existingHabitIds = new Set(
-      (await tx.habit.findMany({ select: { id: true } })).map((h) => h.id),
+      (await tx.habit.findMany({ where: { userId }, select: { id: true } })).map(
+        (h) => h.id,
+      ),
     );
     const existingRoutineIds = new Set(
-      (await tx.routineTask.findMany({ select: { id: true } })).map((t) => t.id),
+      (await tx.routineTask.findMany({ where: { userId }, select: { id: true } })).map(
+        (t) => t.id,
+      ),
     );
     const existingNoteIds = new Set(
-      (await tx.note.findMany({ select: { id: true } })).map((n) => n.id),
+      (await tx.note.findMany({ where: { userId }, select: { id: true } })).map(
+        (n) => n.id,
+      ),
     );
     const existingJournalDates = new Set(
-      (await tx.journalEntry.findMany({ select: { date: true } })).map((j) => j.date),
+      (await tx.journalEntry.findMany({ where: { userId }, select: { date: true } })).map(
+        (j) => j.date,
+      ),
     );
     const existingGoalIds = new Set(
-      (await tx.goal.findMany({ select: { id: true } })).map((g) => g.id),
+      (await tx.goal.findMany({ where: { userId }, select: { id: true } })).map(
+        (g) => g.id,
+      ),
     );
 
     for (const t of payload.todos) {
@@ -417,6 +442,7 @@ export async function runImport(
       await tx.todo.create({
         data: {
           id: t.id,
+          userId,
           title: t.title,
           notes: t.notes ?? null,
           priority: t.priority,
@@ -453,6 +479,7 @@ export async function runImport(
       await tx.habit.create({
         data: {
           id: h.id,
+          userId,
           name: h.name,
           emoji: h.emoji,
           color: h.color,
@@ -489,6 +516,7 @@ export async function runImport(
       await tx.routineTask.create({
         data: {
           id: t.id,
+          userId,
           name: t.name,
           emoji: t.emoji,
           section: t.section,
@@ -516,6 +544,7 @@ export async function runImport(
       await tx.note.create({
         data: {
           id: n.id,
+          userId,
           title: n.title,
           content: n.content,
           tag: n.tag ?? null,
@@ -536,6 +565,7 @@ export async function runImport(
       await tx.journalEntry.create({
         data: {
           id: e.id,
+          userId,
           date: e.date,
           title: e.title ?? null,
           content: e.content,
@@ -557,6 +587,7 @@ export async function runImport(
       await tx.goal.create({
         data: {
           id: g.id,
+          userId,
           title: g.title,
           description: g.description ?? null,
           category: g.category,

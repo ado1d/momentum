@@ -5,6 +5,7 @@
 import { z } from "zod";
 
 import { db } from "@/lib/db";
+import { requireUserId } from "@/lib/server/auth";
 import { handleApiError, HttpError, json, parseOrThrow, readJsonBody } from "@/lib/server/http";
 
 export const dynamic = "force-dynamic";
@@ -19,10 +20,12 @@ const reorderSchema = z.object({
 
 export async function POST(req: Request) {
   try {
+    const userId = await requireUserId();
     const input = parseOrThrow(reorderSchema, await readJsonBody(req));
 
+    // Only the user's own habits are visible; foreign ids behave as unknown.
     const found = await db.habit.findMany({
-      where: { id: { in: input.ids } },
+      where: { id: { in: input.ids }, userId },
       select: { id: true },
     });
     const known = new Set(found.map((h) => h.id));

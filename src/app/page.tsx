@@ -2,10 +2,13 @@
 
 import * as React from "react";
 import dynamic from "next/dynamic";
+import { useSession } from "next-auth/react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Zap } from "lucide-react";
 import { AppShell } from "@/components/app/app-shell";
 import { QuickAddDialog } from "@/components/app/quick-add";
 import { NotificationEngine } from "@/components/app/notification-engine";
+import { LoginScreen } from "@/components/auth/login-screen";
 import { useUiStore } from "@/lib/store";
 
 // Lazy-load every view so the initial payload stays small on phones.
@@ -59,10 +62,45 @@ function ViewLoading() {
   );
 }
 
+/** Tiny splash while next-auth decides whether there's a session — same
+ *  Zap mark + wordmark the login screen shows, so the loading → login
+ *  transition never jumps. */
+function SplashScreen() {
+  return (
+    <div
+      className="flex min-h-dvh flex-col items-center justify-center gap-3 bg-background"
+      aria-busy="true"
+      aria-label="Loading Momentum"
+    >
+      <div className="glow-ring flex size-14 animate-pulse items-center justify-center rounded-2xl bg-primary text-primary-foreground">
+        <Zap className="size-7" aria-hidden="true" />
+      </div>
+      <p className="text-sm font-semibold tracking-tight">Momentum</p>
+    </div>
+  );
+}
+
 export default function Home() {
+  const { data: session, status } = useSession();
+
+  if (status === "loading") return <SplashScreen />;
+  if (!session) return <LoginScreen />;
+  return <AuthenticatedApp userId={session.user.id} />;
+}
+
+/** The whole SPA — only ever mounted while a session exists. */
+function AuthenticatedApp({ userId }: { userId: string }) {
   const view = useUiStore((s) => s.view);
   const [mounted, setMounted] = React.useState(false);
+  const queryClient = useQueryClient();
   React.useEffect(() => setMounted(true), []);
+
+  // Session-change cache hygiene: wipe the TanStack cache when the signed-in
+  // user changes (login as someone else without a full reload) AND on mount,
+  // so user A's cached data can never flash for user B.
+  React.useEffect(() => {
+    queryClient.clear();
+  }, [queryClient, userId]);
 
   return (
     <AppShell>

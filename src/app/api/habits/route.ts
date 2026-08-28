@@ -3,6 +3,7 @@
 // POST /api/habits { name, emoji?, color?, timeOfDay?, reminderTime? } → Habit
 
 import { db } from "@/lib/db";
+import { requireUserId } from "@/lib/server/auth";
 import { handleApiError, json, parseOrThrow, readJsonBody } from "@/lib/server/http";
 import { habitCreateSchema } from "@/lib/server/schemas";
 import {
@@ -15,7 +16,11 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const [habits, ctx] = await Promise.all([fetchHabitsWithLogs(), habitContext()]);
+    const userId = await requireUserId();
+    const [habits, ctx] = await Promise.all([
+      fetchHabitsWithLogs(userId),
+      habitContext(userId),
+    ]);
     return json(habits.map((h) => serializeHabit(h, ctx)));
   } catch (err) {
     return handleApiError(err);
@@ -24,14 +29,17 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
+    const userId = await requireUserId();
     const input = parseOrThrow(habitCreateSchema, await readJsonBody(req));
 
     const last = await db.habit.findFirst({
+      where: { userId },
       orderBy: { sortOrder: "desc" },
       select: { sortOrder: true },
     });
     const habit = await db.habit.create({
       data: {
+        userId,
         name: input.name,
         emoji: input.emoji ?? "✅",
         color: input.color ?? "emerald",
@@ -40,7 +48,7 @@ export async function POST(req: Request) {
         sortOrder: (last?.sortOrder ?? -1) + 1,
       },
     });
-    const ctx = await habitContext();
+    const ctx = await habitContext(userId);
     return json(serializeHabit({ ...habit, logs: [] }, ctx), 201);
   } catch (err) {
     return handleApiError(err);

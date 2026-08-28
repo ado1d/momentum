@@ -1,9 +1,10 @@
 // GET /api/search?q=… → SearchResults
-// Case-insensitive substring search across todos, notes, goals, journal and
-// habits. The dataset is single-user and small, so matching happens in memory
-// (unicode-safe, unlike SQLite LIKE).
+// Case-insensitive substring search across the signed-in user's todos, notes,
+// goals, journal and habits. The per-user dataset is small, so matching
+// happens in memory (unicode-safe, unlike SQL LIKE).
 
 import { db } from "@/lib/db";
+import { requireUserId } from "@/lib/server/auth";
 import { handleApiError, json } from "@/lib/server/http";
 import {
   habitContext,
@@ -27,22 +28,24 @@ function matches(haystacks: (string | null | undefined)[], needle: string): bool
 
 export async function GET(req: Request) {
   try {
+    const userId = await requireUserId();
     const url = new URL(req.url);
     const { q } = querySchema.parse({ q: url.searchParams.get("q") ?? "" });
     const needle = q.toLowerCase();
 
     const [todoRows, noteRows, goalRows, journalRows, habitCtx] = await Promise.all([
       db.todo.findMany({
+        where: { userId },
         orderBy: { createdAt: "desc" },
         include: { subtasks: { orderBy: { sortOrder: "asc" } } },
       }),
-      db.note.findMany({ orderBy: { updatedAt: "desc" } }),
-      db.goal.findMany({ orderBy: { updatedAt: "desc" } }),
-      db.journalEntry.findMany({ orderBy: { date: "desc" } }),
-      habitContext(),
+      db.note.findMany({ where: { userId }, orderBy: { updatedAt: "desc" } }),
+      db.goal.findMany({ where: { userId }, orderBy: { updatedAt: "desc" } }),
+      db.journalEntry.findMany({ where: { userId }, orderBy: { date: "desc" } }),
+      habitContext(userId),
     ]);
     const habitRows = await db.habit.findMany({
-      where: { archived: false },
+      where: { userId, archived: false },
       orderBy: { sortOrder: "asc" },
       include: { logs: { orderBy: { date: "asc" } } },
     });

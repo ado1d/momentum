@@ -1,6 +1,7 @@
 // POST /api/habits/:id/toggle { date: "YYYY-MM-DD" } → { done, streak }
 
 import { db } from "@/lib/db";
+import { requireUserId } from "@/lib/server/auth";
 import { computeStreak, todayKey } from "@/lib/server/daykeys";
 import { handleApiError, HttpError, json, parseOrThrow, readJsonBody } from "@/lib/server/http";
 import { toggleSchema } from "@/lib/server/schemas";
@@ -11,10 +12,11 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export async function POST(req: Request, ctx: RouteContext) {
   try {
+    const userId = await requireUserId();
     const { id } = await ctx.params;
     const { date } = parseOrThrow(toggleSchema, await readJsonBody(req));
 
-    const habit = await db.habit.findUnique({ where: { id }, select: { id: true } });
+    const habit = await db.habit.findFirst({ where: { id, userId }, select: { id: true } });
     if (!habit) throw new HttpError("Habit not found", 404);
 
     // Day keys are compared/unique as plain local "YYYY-MM-DD" strings.
