@@ -3,6 +3,7 @@
 
 import { db } from "@/lib/db";
 import { requireUserId } from "@/lib/server/auth";
+import { recordCascadeTombstones } from "@/lib/server/tombstones";
 import { handleApiError, HttpError, json, parseOrThrow, readJsonBody } from "@/lib/server/http";
 import { subtaskUpdateSchema } from "@/lib/server/schemas";
 import { serializeSubtask } from "@/lib/server/service";
@@ -47,6 +48,7 @@ export async function DELETE(_req: Request, ctx: RouteContext) {
     });
     if (!existing) throw new HttpError("Subtask not found", 404);
 
+    await recordCascadeTombstones(userId, "subtasks", id);
     await db.subtask.delete({ where: { id } });
     return json({ ok: true });
   } catch (err) {

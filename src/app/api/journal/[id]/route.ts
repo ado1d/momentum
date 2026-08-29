@@ -6,6 +6,7 @@
 
 import { db } from "@/lib/db";
 import { requireUserId } from "@/lib/server/auth";
+import { recordCascadeTombstones } from "@/lib/server/tombstones";
 import { isValidDayKey } from "@/lib/server/daykeys";
 import { handleApiError, HttpError, json } from "@/lib/server/http";
 import { serializeJournalEntry } from "@/lib/server/service";
@@ -36,6 +37,7 @@ export async function DELETE(_req: Request, ctx: RouteContext) {
       select: { id: true },
     });
     if (!existing) throw new HttpError("Journal entry not found", 404);
+    await recordCascadeTombstones(userId, "journal", id);
     await db.journalEntry.delete({ where: { id } });
     return json({ ok: true });
   } catch (err) {

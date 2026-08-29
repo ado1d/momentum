@@ -80,3 +80,4 @@ qa-*.png
 # Local dev database (SQLite) + derived local prisma schema
 /db/
 prisma/schema.local.prisma
+.zscripts/

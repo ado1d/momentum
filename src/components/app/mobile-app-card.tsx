@@ -10,7 +10,7 @@
 
 import * as React from "react";
 import { toast } from "sonner";
-import { BellRing, CheckCircle2, Download, Send, Share, Smartphone } from "lucide-react";
+import { BellRing, CheckCircle2, Download, FileArchive, Send, Share, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -128,6 +128,8 @@ export function MobileAppCard() {
   const { canInstall, installed, isIosSafari, promptInstall } = useInstallPrompt();
   const { subscribed, setSubscribed } = usePushState();
   const [busy, setBusy] = React.useState<"enable" | "test" | "install" | null>(null);
+  const [origin, setOrigin] = React.useState("");
+  React.useEffect(() => setOrigin(window.location.origin), []);
 
   const handleInstall = async () => {
     setBusy("install");
@@ -200,6 +202,41 @@ export function MobileAppCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3 p-4 pt-2 sm:p-6 sm:pt-2">
+        {/* ── Native Android app (source project) ── */}
+        <div className="rounded-xl border border-primary/25 bg-primary/5 px-4 py-3">
+          <p className="flex items-center gap-2 text-sm font-semibold">
+            <FileArchive className="size-4 text-primary" aria-hidden="true" />
+            Android app (full native project)
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            The complete Momentum app as an offline-first Android project — build the APK
+            yourself in VS Code. Google sign-in + two-way sync with this account included.
+          </p>
+          <ol className="mt-2 space-y-1 text-xs text-muted-foreground">
+            <li>1 — Download the ZIP and unzip it</li>
+            <li>2 — <span className="font-medium">npm install</span> (Node 18+), try it with <span className="font-medium">npx expo start</span></li>
+            <li>3 — <span className="font-medium">eas build -p android --profile preview</span> → install the APK</li>
+          </ol>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <a href="/momentum-android.zip" download="momentum-android.zip">
+              <Button size="sm" className="rounded-xl">
+                <Download className="size-4" aria-hidden="true" />
+                Download project (.zip)
+              </Button>
+            </a>
+          </div>
+          <p className="mt-2 text-[11px] text-muted-foreground/80">
+            Full step-by-step instructions are inside the ZIP (README.md). For Google
+            sign-in, add{" "}
+            <span className="font-medium">
+              {origin ? `${origin}/api/mobile/auth/google` : "https://…/api/mobile/auth/google"}
+            </span>{" "}
+            as an authorized redirect URI on your Google OAuth client.
+          </p>
+        </div>
+
+        <Separator />
+
         {/* ── Install ── */}
         {installed ? (
           <div className="flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-4 py-3">

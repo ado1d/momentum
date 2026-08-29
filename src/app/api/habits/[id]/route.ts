@@ -3,6 +3,7 @@
 
 import { db } from "@/lib/db";
 import { requireUserId } from "@/lib/server/auth";
+import { recordCascadeTombstones } from "@/lib/server/tombstones";
 import type { Prisma } from "@prisma/client";
 import { handleApiError, HttpError, json, parseOrThrow, readJsonBody } from "@/lib/server/http";
 import { habitUpdateSchema } from "@/lib/server/schemas";
@@ -48,6 +49,7 @@ export async function DELETE(_req: Request, ctx: RouteContext) {
     const { id } = await ctx.params;
     const existing = await db.habit.findFirst({ where: { id, userId }, select: { id: true } });
     if (!existing) throw new HttpError("Habit not found", 404);
+    await recordCascadeTombstones(userId, "habits", id);
     await db.habit.delete({ where: { id } }); // logs cascade
     return json({ ok: true });
   } catch (err) {

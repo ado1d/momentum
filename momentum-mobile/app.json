@@ -1,0 +1,37 @@
+{
+  "expo": {
+    "name": "Momentum",
+    "slug": "momentum",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "momentum",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#10131c",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#10131c"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.momentum.app"
+    },
+    "android": {
+      "package": "com.momentum.app",
+      "permissions": ["POST_NOTIFICATIONS", "VIBRATE", "SCHEDULE_EXACT_ALARM"],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#10131c"
+      }
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "color": "#2dd4a8"
+        }
+      ]
+    ]
+  }
+}

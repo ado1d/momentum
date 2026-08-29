@@ -5,6 +5,7 @@
 
 import { db } from "@/lib/db";
 import { requireUserId } from "@/lib/server/auth";
+import { recordCascadeTombstones } from "@/lib/server/tombstones";
 import type { Prisma } from "@prisma/client";
 import { handleApiError, HttpError, json, parseOrThrow, readJsonBody } from "@/lib/server/http";
 import { nextOccurrence, type RepeatKind } from "@/lib/server/recurrence";
@@ -98,6 +99,7 @@ export async function DELETE(_req: Request, ctx: RouteContext) {
       select: { id: true },
     });
     if (!existing) throw new HttpError("Todo not found", 404);
+    await recordCascadeTombstones(userId, "todos", id);
     await db.todo.delete({ where: { id } });
     return json({ ok: true });
   } catch (err) {

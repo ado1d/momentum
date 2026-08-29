@@ -1,0 +1,14 @@
+node_modules/
+.expo/
+dist/
+web-build/
+*.log
+*.jks
+*.p8
+*.p12
+*.key
+*.keystore
+.env*.local
+android/
+ios/
+.eas/
