@@ -40,14 +40,17 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-local-*
+/local-*
 .claude
 .z-ai-config
 *.log
 dev.log
 dev.out.log
-test
-prompt
+# root-only junk-file patterns — MUST stay root-scoped so they can never
+# ignore nested source paths (a bare `test` here once silently excluded
+# src/app/api/push/test/ from a commit and broke the deployed API).
+/test
+/prompt
 
 server.log
 # Skills directory
@@ -65,9 +68,9 @@ server.log
 *.log
 agent-ctx/
 qa-*.png
-download/
-perfect
---timeout
+/download/
+/perfect
+/--timeout
 
 # QA artifacts + user uploads (local only)
 /qa/
