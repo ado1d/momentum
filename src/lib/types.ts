@@ -203,6 +203,7 @@ export interface AppSettings {
   weekStartsOn: number;
   defaultView: string;
   onboarded: boolean;
+  timezone?: string | null; // IANA tz name (used for digest scheduling)
 }
 
 export interface DayStat {

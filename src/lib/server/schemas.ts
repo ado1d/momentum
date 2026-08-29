@@ -175,6 +175,21 @@ export const settingsUpdateSchema = z.object({
   weekStartsOn: z.number().int().min(0).max(6).optional(),
   defaultView: viewIdSchema.optional(),
   onboarded: z.boolean().optional(),
+  timezone: z.string().min(1).max(64).optional(), // IANA name from the browser
+});
+
+// ── Web push ─────────────────────────────────────────────
+export const pushSubscribeSchema = z.object({
+  endpoint: z.string().url().max(2048),
+  keys: z.object({
+    p256dh: z.string().min(1).max(512),
+    auth: z.string().min(1).max(512),
+  }),
+  userAgent: z.string().max(256).optional(),
+});
+
+export const pushUnsubscribeSchema = z.object({
+  endpoint: z.string().url().max(2048),
 });
 
 // ── Misc bodies ──────────────────────────────────────────────

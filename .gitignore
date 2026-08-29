@@ -73,3 +73,7 @@ perfect
 /qa/
 /tool-results/
 /upload/
+
+# Local dev database (SQLite) + derived local prisma schema
+/db/
+prisma/schema.local.prisma

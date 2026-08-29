@@ -26,6 +26,13 @@ A multi-user, single-page productivity app: tasks, habits, goals, notes, journal
 
 **Platform** — command palette (`⌘K`), keyboard shortcuts (`?` for help, `n` for quick add), first-run onboarding tour, dark/light themes, JSON backup export & import, browser notifications for reminders, PWA (installable, offline shell + cached data with offline badge).
 
+**Mobile app / offline (PWA)** — installable on Android & iOS home screens:
+
+- **Offline-first** — the app shell and your data are cached on the device (service worker + IndexedDB query cache). Open it on a plane and everything is still there.
+- **Offline writes** — create/edit/delete while offline: changes are queued on the device, shown instantly via optimistic updates, and sync automatically when connectivity returns (with a “N changes saved on this device” badge and sync toasts).
+- **Push reminders** — web-push notifications (zero-config VAPID keys, generated on first use) with a daily “Good morning” digest — tasks due today, overdue count, habits left — sent at a sensible local hour via Vercel cron (2 daily slots) or on first app-open of the morning. In-app reminders keep firing while the app is open.
+- **Install card** — Settings → Mobile app shows install status, a one-tap install button (Android/Chrome), step-by-step Add-to-Home-Screen instructions (iOS Safari) and a push enrollment + test-notification button.
+
 ## Tech stack
 
 - **Next.js 16** (App Router) + **TypeScript** (strict)
@@ -59,6 +66,19 @@ bun run dev            # → http://localhost:3000
 
 New users start with empty states everywhere — the onboarding tour opens automatically on first sign-in.
 
+### Local development without Postgres (SQLite)
+
+If you just want to hack on the app locally, point `DATABASE_URL` at a file and run `bun run db:local` — it derives a SQLite schema from `prisma/schema.prisma`, syncs `db/custom.db` and regenerates the client. Google sign-in needs real OAuth credentials; for API testing you can craft a session cookie with `bun run scripts/dev-session.ts <email> "<name>"`.
+
+```bash
+# .env
+DATABASE_URL=file:/absolute/path/to/db/custom.db
+NEXTAUTH_SECRET=dev-secret
+NEXTAUTH_URL=http://localhost:3000
+
+bun run db:local && bun run dev
+```
+
 ### Useful scripts
 
 | Command | Purpose |
@@ -69,6 +89,7 @@ New users start with empty states everywhere — the onboarding tour opens autom
 | `bun run lint` | ESLint |
 | `bun run db:push` | Push `prisma/schema.prisma` to Postgres (uses `DIRECT_URL`) |
 | `bun run db:generate` | Regenerate the Prisma client |
+| `bun run db:local` | Local dev convenience: derive a SQLite schema and sync `db/custom.db` (see *Local development* below) |
 
 ## Deployment
 
@@ -85,8 +106,11 @@ The reference deployment runs on **Vercel + Neon Postgres** (zero-config for thi
 4. Deploy. In Google Cloud Console add:
    - Authorized JavaScript origin: `https://<your-domain>`
    - Authorized redirect URI: `https://<your-domain>/api/auth/callback/google`
+5. *(optional, recommended)* set `CRON_SECRET` on Vercel — any random string (`openssl rand -base64 24`). This arms the two daily cron slots in `vercel.json` that deliver the morning digest push while the app is closed. Without it, digests are only sent on the first app-open of the morning.
 
-Vercel auto-detects Next.js; `postinstall` runs `prisma generate` automatically. Verify the deploy with `GET /api/health` — it returns the live commit sha (`VERCEL_GIT_COMMIT_SHA`).
+Vercel auto-detects Next.js; `postinstall` runs `prisma generate` **and an additive-only `prisma db push`** — so schema additions (new models/columns) reach your Neon database automatically on every deploy. No manual migration step for additive changes. VAPID push keys are generated and stored in the database on first use — no env vars needed.
+
+> Deploys run the schema sync with your Vercel env vars; nothing is needed locally.
 
 > Also works anywhere Node runs (self-host, Docker, Railway, Fly.io): `bun install && bun run build && bun run start` with the same env vars — just point it at any Postgres (Neon, Supabase, RDS…).
 

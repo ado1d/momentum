@@ -39,16 +39,26 @@ export function UserMenu() {
   const handleSignOut = async () => {
     try {
       // Clear client caches BEFORE the sign-out request so this definitely
-      // runs — user A's data must never leak to user B (TanStack cache holds
-      // API payloads in memory; the service-worker "momentum-v1" cache holds
-      // them on disk for offline reads).
+      // runs — user A's data must never leak to user B. Three stores hold
+      // user data: the TanStack in-memory cache (plus its IndexedDB
+      // persistence), the service-worker HTTP caches, and the offline
+      // write queue.
       queryClient.clear();
       if ("caches" in window) {
         try {
-          await caches.delete("momentum-v1");
+          const names = await caches.keys();
+          await Promise.all(names.map((name) => caches.delete(name)));
         } catch {
           /* Storage API unavailable (private mode…) — nothing to clean. */
         }
+      }
+      try {
+        const { clearQueue } = await import("@/lib/offline-queue");
+        await clearQueue();
+        const { del } = await import("idb-keyval");
+        await del("momentum-query-cache-v1");
+      } catch {
+        /* best effort */
       }
     } finally {
       // Full-page redirect to "/" — page.tsx then shows the login screen.

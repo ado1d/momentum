@@ -54,6 +54,7 @@ import { Switch } from "@/components/ui/switch";
 
 import { ViewHeader } from "@/components/app/shared/view-header";
 import { useOnlineStatus } from "@/components/app/pwa-register";
+import { MobileAppCard } from "@/components/app/mobile-app-card";
 import { exportApi, importApi, settingsApi } from "@/lib/api";
 import {
   downloadJson,
@@ -982,6 +983,9 @@ export function SettingsView() {
               </div>
             </CardContent>
           </Card>
+
+          {/* ── Mobile app (install + push) ── */}
+          <MobileAppCard />
 
           {/* ── Preferences ── */}
           <Card className="rounded-2xl py-0 shadow-card">

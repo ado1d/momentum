@@ -12,10 +12,15 @@
  *   • POST/PATCH/DELETE + cross-origin requests   → untouched (no
  *     respondWith → browser default)
  *
- * Bump CACHE ("momentum-v1" → "momentum-v2") to invalidate old caches;
+ * Push notifications:
+ *   • "push"            → shows a notification (title/body/tag/url payload)
+ *   • "notificationclick" → focuses an open client or opens the app
+ *   • "message"         → SKIP_WAITING lets a new SW activate immediately
+ *
+ * Bump CACHE ("momentum-v2" → "momentum-v3") to invalidate old caches;
  * the activate handler deletes everything that no longer matches.
  */
-const CACHE = "momentum-v1";
+const CACHE = "momentum-v2";
 
 /* Core shell pre-cached at install. Each entry is fetched individually so a
  * single failure (e.g. a missing icon) is skipped instead of failing install. */
@@ -64,6 +69,63 @@ self.addEventListener("activate", (event) => {
       await self.clients.claim();
     })(),
   );
+});
+
+/* ── Push notifications ─────────────────────────────────────────── */
+
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = { body: event.data ? event.data.text() : "" };
+  }
+  const title = payload.title || "Momentum";
+  const options = {
+    body: payload.body || "",
+    icon: "/icon-192.png",
+    badge: "/icon-192.png",
+    tag: payload.tag || "momentum",
+    data: { url: payload.url || "/" },
+    // vibrate on Android; ignored elsewhere
+    vibrate: [80, 40, 80],
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || "/";
+  event.waitUntil(
+    (async () => {
+      const clients = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      // Focus an already-open Momentum window when possible.
+      for (const client of clients) {
+        if ("focus" in client) {
+          await client.focus();
+          if (client.url !== self.location.origin + url && "navigate" in client) {
+            try {
+              await client.navigate(url);
+            } catch {
+              /* navigation not allowed — focusing is enough */
+            }
+          }
+          return;
+        }
+      }
+      await self.clients.openWindow(url);
+    })(),
+  );
+});
+
+/* A waiting SW activates immediately when the page asks it to. */
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });
 
 /* ── Route helpers ─────────────────────────────────────────────── */
@@ -183,8 +245,14 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
 
   /* Auth endpoints must NEVER be cached or intercepted — OAuth redirects,
-   * session refreshes and CSRF flows need pristine network round-trips. */
-  if (url.pathname.startsWith("/api/auth/")) return;
+   * session refreshes and CSRF flows need pristine network round-trips.
+   * EXCEPTION: GET /api/auth/session is cached network-first so an offline
+   * cold start (PWA opened with no network) still recognizes the signed-in
+   * user instead of dropping to the login screen. Sign-out deletes ALL
+   * caches (user-menu), so the session never outlives sign-out on disk. */
+  if (url.pathname.startsWith("/api/auth/") && url.pathname !== "/api/auth/session") {
+    return;
+  }
 
   if (isApi(url)) {
     event.respondWith(apiNetworkFirst(request));

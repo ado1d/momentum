@@ -48,12 +48,25 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
 export function showNotification(title: string, body: string) {
   if (typeof window === "undefined" || !("Notification" in window)) return;
   if (Notification.permission !== "granted") return;
+  const options: NotificationOptions = {
+    body,
+    icon: "/icon-192.png",
+    badge: "/icon-192.png",
+    tag: `momentum-${title}-${body}`, // dedupe
+  };
   try {
-    const n = new Notification(title, {
-      body,
-      icon: "/icon.svg",
-      tag: `momentum-${title}-${body}`, // dedupe
-    });
+    // Preferred path: show via the service worker registration — the ONLY
+    // API that works inside installed iOS PWAs (the `new Notification()`
+    // constructor is unsupported there).
+    if ("serviceWorker" in navigator) {
+      void navigator.serviceWorker.ready
+        .then((registration) => registration.showNotification(title, options))
+        .catch(() => {
+          /* fall back below silently */
+        });
+      return;
+    }
+    const n = new Notification(title, options);
     setTimeout(() => n.close(), 8000);
   } catch {
     /* some mobile browsers throw on constructor — ignore */

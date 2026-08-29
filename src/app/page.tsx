@@ -8,6 +8,7 @@ import { Zap } from "lucide-react";
 import { AppShell } from "@/components/app/app-shell";
 import { QuickAddDialog } from "@/components/app/quick-add";
 import { NotificationEngine } from "@/components/app/notification-engine";
+import { PushManager } from "@/components/app/push-manager";
 import { LoginScreen } from "@/components/auth/login-screen";
 import { useUiStore } from "@/lib/store";
 
@@ -105,6 +106,9 @@ function AuthenticatedApp({ userId }: { userId: string }) {
   return (
     <AppShell>
       <NotificationEngine />
+      {/* Server-push upkeep: subscribes this device when permission is granted,
+          reports timezone, triggers the morning digest on app-open. */}
+      <PushManager />
       <QuickAddDialog />
       {!mounted ? (
         <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-muted-foreground">

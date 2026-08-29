@@ -1,5 +1,11 @@
 // Typed API client — thin fetch wrapper with consistent error handling.
 // All endpoints live under /api/* and speak JSON.
+//
+// Offline behaviour: while the browser reports no connection (or a write
+// request physically fails on the network), queueable mutations are diverted
+// into the IndexedDB offline queue instead of throwing — the UI keeps
+// working from optimistic cache patches and everything syncs when the
+// connection returns (see lib/offline-queue.ts + offline-cache.ts).
 
 import type {
   AppSettings,
@@ -27,6 +33,37 @@ import type {
   ToggleResult,
   WeeklyReview,
 } from "./types";
+import { enqueueRequest, isQueueablePath } from "./offline-queue";
+
+/** Marker returned in place of the server response for queued writes. */
+export interface QueuedOfflineResponse {
+  id?: string;
+  __queuedOffline: true;
+}
+
+function randomTempId(): string {
+  try {
+    return `offline-${crypto.randomUUID().slice(0, 12)}`;
+  } catch {
+    return `offline-${Math.random().toString(36).slice(2, 12)}`;
+  }
+}
+
+/** Divert a mutation into the offline queue; returns a synthetic response. */
+async function divertToOfflineQueue<T>(
+  path: string,
+  method: string,
+  body: string | undefined,
+): Promise<T> {
+  const tempId = randomTempId();
+  await enqueueRequest(path, method, body ?? null, tempId);
+  window.dispatchEvent(
+    new CustomEvent("momentum:offline-queued", {
+      detail: { url: path, method, body: body ?? null, tempId },
+    }),
+  );
+  return { id: tempId, __queuedOffline: true } as T;
+}
 
 export class ApiError extends Error {
   status: number;
@@ -40,14 +77,38 @@ async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const res = await fetch(path, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers ?? {}),
-    },
-    cache: "no-store",
-  });
+  const method = options.method ?? "GET";
+  const requestBody = typeof options.body === "string" ? options.body : undefined;
+
+  // Proactive offline check — the browser already knows there's no network.
+  if (
+    typeof window !== "undefined" &&
+    typeof navigator !== "undefined" &&
+    !navigator.onLine &&
+    method !== "GET" &&
+    isQueueablePath(path)
+  ) {
+    return divertToOfflineQueue<T>(path, method, requestBody);
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers ?? {}),
+      },
+      cache: "no-store",
+    });
+  } catch {
+    // Reactive offline path — navigator.onLine lied (flaky connection):
+    // a physical network failure on a queueable write also queues it.
+    if (method !== "GET" && isQueueablePath(path) && typeof window !== "undefined") {
+      return divertToOfflineQueue<T>(path, method, requestBody);
+    }
+    throw new ApiError("You're offline and this request can't be queued", 0);
+  }
   let body: unknown = null;
   try {
     body = await res.json();

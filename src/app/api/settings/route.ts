@@ -19,6 +19,7 @@ function toAppSettings(row: Settings): AppSettings {
     weekStartsOn: row.weekStartsOn,
     defaultView: row.defaultView,
     onboarded: row.onboarded,
+    timezone: row.timezone,
   };
 }
 
@@ -46,6 +47,7 @@ export async function PATCH(req: Request) {
     if (input.weekStartsOn !== undefined) data.weekStartsOn = input.weekStartsOn;
     if (input.defaultView !== undefined) data.defaultView = input.defaultView;
     if (input.onboarded !== undefined) data.onboarded = input.onboarded;
+    if (input.timezone !== undefined) data.timezone = input.timezone;
 
     const updated = await db.settings.update({ where: { userId }, data });
     return json(toAppSettings(updated));

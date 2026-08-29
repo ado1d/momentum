@@ -31,6 +31,7 @@ model User {
   goals       Goal[]
   focusSessions FocusSession[]
   settings    Settings[]
+  pushSubscriptions PushSubscription[]
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -222,5 +223,34 @@ model Settings {
   weekStartsOn         Int      @default(1) // 0 = Sunday
   defaultView          String   @default("dashboard")
   onboarded            Boolean  @default(false)
+  timezone             String? // IANA tz name from the browser, e.g. "Asia/Dhaka"
+  lastDigestAt         DateTime? // last morning-digest push sent (dedupe)
   updatedAt            DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────────────────────
+// Web-push subscriptions (PWA notifications when the app is closed)
+// ─────────────────────────────────────────────────────────────
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique // push service URL (unique per device/browser)
+  p256dh    String // client public key
+  auth      String // client auth secret
+  userAgent String? // device label for the settings UI
+  createdAt DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// App-level key/value store (e.g. auto-generated VAPID keypair for
+// web-push — keeps push zero-config: no env vars required)
+// ─────────────────────────────────────────────────────────────
+model AppConfig {
+  key       String   @id
+  value     String // JSON-encoded
+  updatedAt DateTime @updatedAt
 }

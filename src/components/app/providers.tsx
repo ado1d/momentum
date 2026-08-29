@@ -1,10 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
+import { QueryClient, useQueryClient } from "@tanstack/react-query";
+import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { SessionProvider } from "next-auth/react";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
+import { createIdbPersister } from "@/lib/query-persister";
+import { OfflineSync } from "./offline-sync";
 
 // Module-level debounce flag for 401 handling. While true, additional
 // "momentum:unauthorized" events (a burst of 401s from several queries
@@ -51,9 +54,19 @@ export function Providers({ children }: { children: React.ReactNode }) {
             staleTime: 20 * 1000,
             retry: 1,
             refetchOnWindowFocus: true,
+            // Keep restored queries around for a week so offline cold
+            // starts (app opened with no network) still render data.
+            gcTime: 1000 * 60 * 60 * 24 * 7,
+          },
+          mutations: {
+            // Mutations must EXECUTE while offline so api.ts can divert
+            // them into the IndexedDB offline queue (default "online"
+            // mode would pause them instead — the queue would never fill).
+            networkMode: "offlineFirst",
+            retry: 0,
           },
         },
-      })
+      }),
   );
 
   return (
@@ -65,11 +78,23 @@ export function Providers({ children }: { children: React.ReactNode }) {
     >
       {/* SessionProvider needs no config — the defaults hit /api/auth/session. */}
       <SessionProvider>
-        <QueryClientProvider client={queryClient}>
+        <PersistQueryClientProvider
+          client={queryClient}
+          persistOptions={{
+            persister: createIdbPersister(),
+            maxAge: 1000 * 60 * 60 * 24 * 7, // one week
+            dehydrateOptions: {
+              // Persist successful queries only — never error states.
+              shouldDehydrateQuery: (query) => query.state.status === "success",
+            },
+          }}
+        >
           <UnauthorizedWatcher />
+          {/* Offline write queue: optimistic patches + replay on reconnect */}
+          <OfflineSync />
           {children}
           <Toaster position="top-center" richColors closeButton />
-        </QueryClientProvider>
+        </PersistQueryClientProvider>
       </SessionProvider>
     </ThemeProvider>
   );
