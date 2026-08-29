@@ -19,8 +19,14 @@
  *
  * Bump CACHE ("momentum-v2" → "momentum-v3") to invalidate old caches;
  * the activate handler deletes everything that no longer matches.
+ *
+ * Shell-update safety: before a freshly fetched HTML shell replaces the
+ * cached one, every /_next/static/* chunk it references is pre-cached
+ * FIRST — otherwise a deploy followed by an offline moment could serve
+ * new HTML whose chunks aren't cached yet, crashing the app offline with
+ * a missing-module error.
  */
-const CACHE = "momentum-v2";
+const CACHE = "momentum-v3";
 
 /* Core shell pre-cached at install. Each entry is fetched individually so a
  * single failure (e.g. a missing icon) is skipped instead of failing install. */
@@ -158,6 +164,13 @@ async function cacheFirst(request) {
   return response;
 }
 
+/* Extract the /_next/static/* asset URLs an HTML document references
+ * (script src, link href, inline bootstrap strings). */
+function chunkUrlsFromHtml(html) {
+  const matches = html.match(/\/_next\/static\/[^"'\s<>)]+/g) || [];
+  return [...new Set(matches)];
+}
+
 /* Network-first for navigations: fresh HTML when online, cached shell offline. */
 async function shellNetworkFirst(request) {
   let cache = null;
@@ -170,6 +183,22 @@ async function shellNetworkFirst(request) {
     const response = await fetch(request);
     if (cache && response.ok) {
       try {
+        /* Pre-cache the chunks the new shell references BEFORE swapping
+         * the cached page in — see the header comment. */
+        const html = await response.clone().text();
+        const chunks = chunkUrlsFromHtml(html);
+        await Promise.all(
+          chunks.map(async (url) => {
+            try {
+              const existing = await cache.match(url);
+              if (existing) return;
+              const asset = await fetch(new Request(url, { cache: "reload" }));
+              if (asset.ok) await cache.put(url, asset);
+            } catch {
+              /* best effort — chunk also caches on first use */
+            }
+          }),
+        );
         /* Keep the offline shell fresh — the SPA serves "/" for every view. */
         await cache.put("/", response.clone());
       } catch {

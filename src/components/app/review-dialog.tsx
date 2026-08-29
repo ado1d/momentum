@@ -578,7 +578,7 @@ export function ReviewDialog({ open, onOpenChange }: ReviewDialogProps) {
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 sm:px-6">
           {isLoading && !data ? (
             <ReviewSkeleton />
-          ) : isError ? (
+          ) : isError && !data ? (
             <EmptyState
               icon={CloudOff}
               title="Couldn't load your review"

@@ -905,7 +905,8 @@ export function GoalsView() {
 
       {goalsQuery.isLoading ? (
         <GoalsSkeleton />
-      ) : goalsQuery.isError ? (
+      ) : goalsQuery.isError && goals.length === 0 ? (
+        // Offline-tolerant: cached goals survive a failed refetch.
         <QueryError onRetry={() => goalsQuery.refetch()} />
       ) : (
         <div className="space-y-4">

@@ -701,8 +701,12 @@ export function DashboardView() {
   });
 
   if (isLoading) return <DashboardSkeleton />;
-  if (isError || !data) {
-    return <DashboardError onRetry={() => void refetch()} />;
+  // Offline-tolerant: when we have cached data (restored from persistence
+  // or the SW cache) a failed background refetch must NOT hide it — show
+  // the data with the offline badge instead of an error screen.
+  if (!data) {
+    if (isError) return <DashboardError onRetry={() => void refetch()} />;
+    return <DashboardSkeleton />;
   }
 
   const { today, week, activeGoals, upcomingTodos, todayHabits, recentJournal, quote } =

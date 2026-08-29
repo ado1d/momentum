@@ -917,8 +917,14 @@ export function SettingsView() {
 
       {isLoading ? (
         <SettingsSkeleton />
-      ) : isError || !settings ? (
-        <QueryError onRetry={() => void refetch()} />
+      ) : !settings ? (
+        // Offline-tolerant: no cached settings at all → error screen only
+        // when the fetch actually failed; otherwise keep the skeleton.
+        isError ? (
+          <QueryError onRetry={() => void refetch()} />
+        ) : (
+          <SettingsSkeleton />
+        )
       ) : (
         <div className="space-y-4">
           {/* ── Notifications ── */}

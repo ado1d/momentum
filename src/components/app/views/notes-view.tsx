@@ -4,6 +4,7 @@ import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
+  CloudUpload,
   Download,
   Ellipsis,
   FileText,
@@ -247,6 +248,15 @@ function NoteCard({ note, onOpen, onTogglePin, onDelete, onWikiLink, pinPending 
               className="rounded-full px-2 py-0 text-[10px] font-medium"
             >
               # {note.tag}
+            </Badge>
+          )}
+          {note.id.startsWith("offline-") && (
+            <Badge
+              className="gap-1 rounded-full border-amber-500/30 bg-amber-500/10 px-2 py-0 text-[10px] font-medium text-amber-700 hover:bg-amber-500/10 dark:text-amber-300"
+              title="Created while offline — will upload when you reconnect"
+            >
+              <CloudUpload className="size-3" aria-hidden="true" />
+              Syncs when online
             </Badge>
           )}
           <span className="ml-auto text-[11px] text-muted-foreground">
@@ -545,9 +555,11 @@ function NoteReaderDialog({
   onWikiLink: (title: string) => void;
 }) {
   // Keep the last note around so the close animation has content.
-  const lastNoteRef = React.useRef<Note | null>(null);
-  if (note) lastNoteRef.current = note;
-  const shown = note ?? lastNoteRef.current;
+  // (Render-phase state adjust — the React-documented pattern for deriving
+  // state from props; settles immediately, no extra commit.)
+  const [lastNote, setLastNote] = React.useState<Note | null>(null);
+  if (note && note !== lastNote) setLastNote(note);
+  const shown = note ?? lastNote;
 
   const backlinks = React.useMemo(() => {
     const title = shown?.title.trim().toLowerCase();
@@ -903,7 +915,8 @@ export function NotesView() {
           </div>
           <NotesSkeleton />
         </>
-      ) : isError ? (
+      ) : isError && notes.length === 0 ? (
+        // Offline-tolerant: cached notes survive a failed refetch.
         <QueryError onRetry={() => void refetch()} />
       ) : (
         <div className="space-y-4">

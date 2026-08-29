@@ -584,9 +584,11 @@ function EntryReaderDialog({
   onEditDay: (entry: JournalEntry) => void;
 }) {
   // Keep the last entry around so the close animation has content.
-  const lastEntryRef = React.useRef<JournalEntry | null>(null);
-  if (entry) lastEntryRef.current = entry;
-  const shown = entry ?? lastEntryRef.current;
+  // (Render-phase state adjust — the React-documented pattern for deriving
+  // state from props; settles immediately, no extra commit.)
+  const [lastEntry, setLastEntry] = React.useState<JournalEntry | null>(null);
+  if (entry && entry !== lastEntry) setLastEntry(entry);
+  const shown = entry ?? lastEntry;
 
   if (!shown) return null;
 
@@ -926,7 +928,8 @@ export function DiaryView() {
 
       {isLoading ? (
         <DiarySkeleton />
-      ) : isError ? (
+      ) : isError && entries.length === 0 ? (
+        // Offline-tolerant: cached entries survive a failed refetch.
         <QueryError onRetry={() => void refetch()} />
       ) : (
         <div className="space-y-6">

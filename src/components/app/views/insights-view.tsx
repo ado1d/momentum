@@ -871,8 +871,11 @@ export function InsightsView() {
   });
 
   if (isLoading) return <InsightsSkeleton />;
-  if (isError || !data) {
-    return <InsightsError onRetry={() => void refetch()} />;
+  // Offline-tolerant: cached data survives a failed background refetch —
+  // only a genuine no-data error shows the error screen.
+  if (!data) {
+    if (isError) return <InsightsError onRetry={() => void refetch()} />;
+    return <InsightsSkeleton />;
   }
 
   return (

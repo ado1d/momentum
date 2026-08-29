@@ -1164,7 +1164,8 @@ export function RoutineView() {
         <TabsContent value="habits" className="space-y-5">
           {habitsQuery.isLoading ? (
             <ListSkeleton />
-          ) : habitsQuery.isError ? (
+          ) : habitsQuery.isError && habits.length === 0 ? (
+            // Offline-tolerant: cached habits survive a failed refetch.
             <QueryError onRetry={() => habitsQuery.refetch()} />
           ) : habits.length === 0 ? (
             <EmptyState
@@ -1208,7 +1209,8 @@ export function RoutineView() {
         <TabsContent value="schedule" className="space-y-4">
           {routineQuery.isLoading ? (
             <ListSkeleton rows={2} />
-          ) : routineQuery.isError ? (
+          ) : routineQuery.isError && tasks.length === 0 ? (
+            // Offline-tolerant: cached routine survives a failed refetch.
             <QueryError onRetry={() => routineQuery.refetch()} />
           ) : tasks.length === 0 ? (
             <EmptyState

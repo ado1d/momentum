@@ -12,6 +12,7 @@ import {
   ChevronDown,
   Clock,
   CloudOff,
+  CloudUpload,
   FileText,
   GripVertical,
   ListChecks,
@@ -532,6 +533,15 @@ function TodoRow({
         >
           <PriorityBadge priority={todo.priority} />
           <CategoryBadge category={todo.category} />
+          {todo.id.startsWith("offline-") && (
+            <span
+              className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 text-[10px] font-medium text-amber-700 dark:text-amber-300"
+              title="Created while offline — will upload when you reconnect"
+            >
+              <CloudUpload className="size-3 shrink-0" aria-hidden="true" />
+              Syncs when online
+            </span>
+          )}
           {subtaskTotal > 0 ? (
             <button
               type="button"
@@ -1392,7 +1402,9 @@ export function TasksView() {
       {/* Task list */}
       {isLoading ? (
         <TasksSkeleton />
-      ) : isError ? (
+      ) : isError && todos.length === 0 ? (
+        // Offline-tolerant: a failed background refetch only matters when
+        // there's no cached list to show; restored data keeps rendering.
         <EmptyState
           icon={CloudOff}
           title="Couldn't load your tasks"

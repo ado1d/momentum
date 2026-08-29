@@ -1171,7 +1171,7 @@ export function FocusView() {
             Array.from({ length: 4 }).map((_, i) => (
               <Skeleton key={i} className="h-[118px] rounded-2xl" />
             ))
-          ) : statsQuery.isError || !stats ? (
+          ) : !stats ? (
             <div className="col-span-2 sm:col-span-4">
               <EmptyState
                 icon={CloudOff}

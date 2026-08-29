@@ -5,8 +5,11 @@
 // Responsibilities:
 //   • Apply optimistic cache patches when a mutation is diverted into the
 //     offline queue (so the UI reflects offline changes immediately).
-//   • Replay the queue when connectivity returns ("online" event) and on
-//     app load (catching up changes made during a previous offline session).
+//   • Replay the queue when connectivity returns ("online" event), on
+//     app load (catching up changes made during a previous offline
+//     session), when the tab becomes visible again, and on a periodic
+//     poll (catches "lie-fi" cases where the browser never fires the
+//     online event, e.g. captive portals / wifi that reconnects silently).
 //   • After a successful sync, invalidate all queries so the UI converges
 //     on fresh server truth, with user-facing toasts.
 //
@@ -16,7 +19,7 @@
 import * as React from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { applyOfflineOptimistic, type OfflineMutationDetail } from "@/lib/offline-cache";
+import { applyOfflineOptimistic, reapplyOfflinePatches, type OfflineMutationDetail } from "@/lib/offline-cache";
 import { getQueueCount, replayQueue } from "@/lib/offline-queue";
 
 export const QUEUE_SYNCING_EVENT = "momentum:queue-syncing";
@@ -31,6 +34,11 @@ export function OfflineSync() {
     const pending = await getQueueCount();
     if (pending === 0) {
       queuedToastShownRef.current = false;
+      return;
+    }
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      // Genuinely offline — nothing to do yet. (The queue stays intact;
+      // the badge already tells the user their changes are safe.)
       return;
     }
 
@@ -56,6 +64,11 @@ export function OfflineSync() {
             ? "1 offline change couldn't sync — it may have been removed on another device"
             : `${result.dropped} offline changes couldn't sync — they may have been removed on another device`,
         );
+      }
+      if (result.remaining > 0) {
+        // Some entries couldn't replay (server hiccup). Keep their
+        // optimistic patches alive on top of the fresh data.
+        await reapplyOfflinePatches(queryClient);
       }
       queuedToastShownRef.current = false;
     } finally {
@@ -84,16 +97,28 @@ export function OfflineSync() {
       queuedToastShownRef.current = false;
       void sync();
     };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void sync();
+    };
 
     window.addEventListener("momentum:offline-queued", onQueued);
     window.addEventListener("online", onOnline);
+    document.addEventListener("visibilitychange", onVisible);
 
     // Catch up on changes queued during a previous offline session.
     if (typeof navigator !== "undefined" && navigator.onLine) void sync();
 
+    // Periodic safety net: the "online" event doesn't always fire
+    // (lie-fi). Every 30s, if we're online with queued changes, sync.
+    const poll = setInterval(() => {
+      if (typeof navigator !== "undefined" && navigator.onLine) void sync();
+    }, 30_000);
+
     return () => {
       window.removeEventListener("momentum:offline-queued", onQueued);
       window.removeEventListener("online", onOnline);
+      document.removeEventListener("visibilitychange", onVisible);
+      clearInterval(poll);
     };
   }, [queryClient, sync]);
 

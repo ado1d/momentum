@@ -1,12 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { QueryClient, useQueryClient } from "@tanstack/react-query";
+import { QueryCache, QueryClient, useQueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { SessionProvider } from "next-auth/react";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { createIdbPersister } from "@/lib/query-persister";
+import { scheduleOfflineReapply } from "@/lib/offline-cache";
 import { OfflineSync } from "./offline-sync";
 
 // Module-level debounce flag for 401 handling. While true, additional
@@ -46,28 +47,41 @@ function UnauthorizedWatcher() {
 }
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  const [queryClient] = React.useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            staleTime: 20 * 1000,
-            retry: 1,
-            refetchOnWindowFocus: true,
-            // Keep restored queries around for a week so offline cold
-            // starts (app opened with no network) still render data.
-            gcTime: 1000 * 60 * 60 * 24 * 7,
-          },
-          mutations: {
-            // Mutations must EXECUTE while offline so api.ts can divert
-            // them into the IndexedDB offline queue (default "online"
-            // mode would pause them instead — the queue would never fill).
-            networkMode: "offlineFirst",
-            retry: 0,
-          },
+  const [queryClient] = React.useState(() => {
+    let client!: QueryClient;
+    // QueryCache.onSuccess fires ONLY for successful FETCHES (never for
+    // setQueryData), which makes it the perfect hook for re-applying
+    // optimistic offline patches: whenever fresh server data lands while
+    // the offline queue is non-empty — including the stale SW-cached
+    // responses served while offline — the pending patches are re-applied
+    // on top so offline changes stay visible. Without this, a background
+    // refetch while offline silently wipes every offline change from the
+    // screen (setQueryData doesn't trigger onSuccess → no loop).
+    const queryCache = new QueryCache({
+      onSuccess: () => scheduleOfflineReapply(client),
+    });
+    client = new QueryClient({
+      queryCache,
+      defaultOptions: {
+        queries: {
+          staleTime: 20 * 1000,
+          retry: 1,
+          refetchOnWindowFocus: true,
+          // Keep restored queries around for a week so offline cold
+          // starts (app opened with no network) still render data.
+          gcTime: 1000 * 60 * 60 * 24 * 7,
         },
-      }),
-  );
+        mutations: {
+          // Mutations must EXECUTE while offline so api.ts can divert
+          // them into the IndexedDB offline queue (default "online"
+          // mode would pause them instead — the queue would never fill).
+          networkMode: "offlineFirst",
+          retry: 0,
+        },
+      },
+    });
+    return client;
+  });
 
   return (
     <ThemeProvider
