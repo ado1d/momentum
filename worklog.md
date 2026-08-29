@@ -952,3 +952,26 @@ Stage Summary:
 - DEPLOY PLAN: push → Vercel auto-deploy (Git integration) → postinstall runs additive prisma db push (creates PushSubscription + AppConfig tables + Settings columns on Neon AUTOMATICALLY) → verify /api/health commit flip.
 - REMAINING USER STEPS (told in final message): (1) optional CRON_SECRET env var on Vercel to arm the closed-app daily digest cron; (2) Google OAuth production redirect URI (still pending from before); (3) on iPhone: install via Safari → Add to Home Screen, then Settings → Mobile app → Enable push.
 - SECURITY NOTE: local .env now contains NO real credentials (SQLite path + dev-only secret). Production secrets live only in Vercel. GitHub PAT from earlier sessions was NOT used this session until the final push.
+
+---
+Task ID: PUSH-TEST-404-FIX
+Agent: main
+Task: User report: "installed and enabled push notification but send test gives request failed 404"
+
+Work Log:
+- Diagnosed via production probes: POST /api/push/subscribe returned proper 401 JSON (route exists) but POST /api/push/test returned the Next.js 404 HTML page (route MISSING from the deployed build) — despite /api/health confirming production was on the mobile-app commit 82f8305.
+- Root cause: `.gitignore` line "test" (bare, unscoped — leftover junk-file pattern) matched the DIRECTORY src/app/api/push/test/, so `git add` silently skipped it when commit 82f8305 was created. The file existed on disk the whole time and worked in local QA, but was never committed → never deployed. git ls-tree HEAD confirmed only 4 of 5 push routes were in the commit; `git check-ignore -v` proved the pattern was the culprit.
+- Fixed .gitignore: scoped ALL dangerous bare junk patterns to repo root (/test, /prompt, /perfect, /--timeout, /download/, /local-*) so they can never ignore nested source files again. Added an explanatory comment warning future agents.
+- Verified no OTHER source files were being silently ignored (git ls-files --others --ignored: only junk remained — .env, logs, tsbuildinfo, schema.local.prisma, db/).
+- Committed c73d49a ("fix: deploy missing /api/push/test route") — 2 files: .gitignore + src/app/api/push/test/route.ts (newly tracked).
+- Re-pushed to GitHub (remote origin config had been lost; pushed via explicit PAT URL): 82f8305..c73d49a main -> main.
+- Vercel auto-deploy confirmed: /api/health flipped to c73d49a (~50s after push).
+- VERIFIED FIX: prod POST /api/push/test now returns 401 JSON {"error":"Sign in to use Momentum"} (auth-gated route exists) instead of 404 HTML. Unauthenticated subscribe/vapid-public still 401 as designed.
+- Local smoke test with crafted dev-session cookie (qa-push-test@example.com): POST /api/push/test → 200 {"sent":0,"failed":0,"removed":0} (graceful no-subs response). QA user then deleted from local SQLite (0 rows).
+- lint: clean (only the 1 pre-existing documented warning in mdx-editor-inner.tsx). Production homepage browser check: renders, 0 console errors.
+- User's existing subscription is safe: "Enable push" (subscribe route) was always deployed, so their PushSubscription row is already in Neon — after this deploy, "Send test" will deliver a real notification ("Momentum ✓ Push notifications are working…").
+
+Stage Summary:
+- USER-REPORTED BUG FIXED AND DEPLOYED: the 404 on Settings → Mobile app → Send test was caused by a gitignore pattern silently excluding src/app/api/push/test/ from the mobile-app commit. Route is now live; user should retry "Send test" (no re-install/re-enroll needed).
+- Lesson recorded: scope junk ignore patterns to root; after any "route works locally but 404 in prod" report, FIRST run `git ls-tree -r HEAD --name-only` vs disk + `git check-ignore -v` before suspecting Vercel.
+- REMAINING USER STEPS (unchanged): optional CRON_SECRET env var on Vercel to arm the closed-app daily digest cron; Google OAuth production redirect URI (pending from before); revoke shared credentials when done testing.
