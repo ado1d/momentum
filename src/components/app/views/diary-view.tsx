@@ -16,6 +16,7 @@ import {
   FileText,
   Heart,
   Loader2,
+  Pencil,
   Printer,
   Save,
   Trash2,
@@ -41,6 +42,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -50,6 +57,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Slider } from "@/components/ui/slider";
 import { Calendar } from "@/components/ui/calendar";
@@ -69,10 +77,11 @@ import {
   formatKeyLong,
   keyToDate,
   monthLabel,
+  relativeTime,
   shortDayName,
   todayKey,
 } from "@/lib/dates";
-import { downloadMarkdown, esc, miniMarkdownToHtml, printHtml } from "@/lib/export";
+import { downloadMarkdown, esc, miniMarkdownToHtml, printHtml, readingStats } from "@/lib/export";
 import { MOODS, type JournalEntry, type Mood } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -211,6 +220,7 @@ interface TimelineRowProps {
   expanded: boolean;
   onToggle: () => void;
   onOpenDay: (entry: JournalEntry) => void;
+  onRead: (entry: JournalEntry) => void;
   onDelete: (entry: JournalEntry) => void;
   isCurrent: boolean;
 }
@@ -220,6 +230,7 @@ function TimelineRow({
   expanded,
   onToggle,
   onOpenDay,
+  onRead,
   onDelete,
   isCurrent,
 }: TimelineRowProps) {
@@ -286,8 +297,11 @@ function TimelineRow({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuItem onSelect={() => onRead(entry)}>
+              <BookOpen aria-hidden="true" /> Read entry
+            </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onOpenDay(entry)}>
-              <BookOpen aria-hidden="true" /> Open this day
+              <Pencil aria-hidden="true" /> Edit this day
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem variant="destructive" onSelect={() => onDelete(entry)}>
@@ -350,11 +364,11 @@ function TimelineRow({
 function MoodCalendarCard({
   today,
   weekStartsOn,
-  onOpenEntry,
+  onReadEntry,
 }: {
   today: string;
   weekStartsOn: Day;
-  onOpenEntry: (entry: JournalEntry) => void;
+  onReadEntry: (entry: JournalEntry) => void;
 }) {
   const currentMonth = today.slice(0, 7);
   const [monthKey, setMonthKey] = React.useState(currentMonth);
@@ -487,7 +501,7 @@ function MoodCalendarCard({
                   <button
                     key={key}
                     type="button"
-                    onClick={() => onOpenEntry(entry)}
+                    onClick={() => onReadEntry(entry)}
                     title={tooltip}
                     aria-label={tooltip}
                     className={cn(
@@ -548,6 +562,131 @@ function MoodCalendarCard({
   );
 }
 
+// ── Entry read-mode dialog ───────────────────────────
+
+/**
+ * Read-mode dialog for a diary entry — clicking a mood-calendar day
+ * or "Read entry" opens this rendered view FIRST (the editor stays
+ * for the explicit "Edit this day" action). Shows the full date,
+ * mood + energy, headline, rendered markdown and gratitude.
+ */
+function EntryReaderDialog({
+  open,
+  entry,
+  today,
+  onOpenChange,
+  onEditDay,
+}: {
+  open: boolean;
+  entry: JournalEntry | null;
+  today: string;
+  onOpenChange: (open: boolean) => void;
+  onEditDay: (entry: JournalEntry) => void;
+}) {
+  // Keep the last entry around so the close animation has content.
+  const lastEntryRef = React.useRef<JournalEntry | null>(null);
+  if (entry) lastEntryRef.current = entry;
+  const shown = entry ?? lastEntryRef.current;
+
+  if (!shown) return null;
+
+  const stats = readingStats(shown.content);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[88dvh] flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-2xl">
+        <DialogDescription className="sr-only">Reading view</DialogDescription>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6 pt-5 sm:px-8 sm:pt-6">
+          <div className="flex items-start gap-3 pr-8">
+            <span
+              className={cn(
+                "flex size-12 shrink-0 items-center justify-center rounded-2xl text-2xl",
+                shown.mood ? MOOD_TINT[shown.mood] : "bg-muted/50"
+              )}
+              aria-hidden="true"
+            >
+              {moodEmojiOf(shown.mood) || "·"}
+            </span>
+            <div className="min-w-0">
+              <DialogTitle className="break-words text-left text-lg font-bold leading-snug sm:text-xl">
+                {formatKeyLong(shown.date)}
+              </DialogTitle>
+              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] uppercase tracking-wide text-muted-foreground">
+                {shown.date === today && (
+                  <Badge
+                    className="rounded-full px-2 py-0 text-[10px] font-semibold uppercase tracking-wide"
+                    variant="default"
+                  >
+                    Today
+                  </Badge>
+                )}
+                {shown.mood && (
+                  <span>
+                    {moodEmojiOf(shown.mood)} {moodLabelOf(shown.mood)}
+                  </span>
+                )}
+                {shown.energy !== null && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span>Energy {shown.energy}/5</span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {shown.title && (
+            <h3 className="mt-4 break-words text-base font-semibold sm:text-lg">
+              {shown.title}
+            </h3>
+          )}
+
+          <Separator className="my-4" />
+
+          <div key={shown.id} className="view-enter">
+            {shown.content.trim() ? (
+              <MarkdownContent
+                content={shown.content}
+                className="text-[15px] leading-7 sm:text-base [&_blockquote]:my-3 [&_blockquote]:pl-4 [&_code]:text-[13px] [&_h1]:mb-2 [&_h1]:mt-6 [&_h1]:text-2xl [&_h2]:mb-1.5 [&_h2]:mt-5 [&_h2]:text-xl [&_h3]:mt-4 [&_h3]:text-lg [&_li]:mt-1 [&_ol]:my-2.5 [&_p]:my-2.5 [&_ul]:my-2.5"
+              />
+            ) : (
+              <p className="text-sm italic text-muted-foreground/70">
+                No written content for this day.
+              </p>
+            )}
+          </div>
+
+          {shown.gratitude && (
+            <p className="mt-4 flex items-start gap-2 rounded-xl bg-rose-500/5 px-3 py-2.5 text-sm text-rose-700 dark:text-rose-300">
+              <Heart
+                className="mt-0.5 size-4 shrink-0 fill-rose-500 text-rose-500"
+                aria-hidden="true"
+              />
+              <span>{shown.gratitude}</span>
+            </p>
+          )}
+
+          {stats.words > 0 && (
+            <p className="mt-4 text-[11px] text-muted-foreground">
+              {stats.words} {stats.words === 1 ? "word" : "words"} · {stats.minutes} min read
+            </p>
+          )}
+        </div>
+
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t bg-muted/30 px-5 py-3 sm:px-8">
+          <span className="truncate text-[11px] text-muted-foreground">
+            Edited {relativeTime(shown.updatedAt)}
+          </span>
+          <Button className="h-10 shrink-0 rounded-xl" onClick={() => onEditDay(shown)}>
+            <Pencil aria-hidden="true" /> Edit this day
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Main view ────────────────────────────────────────────────
 
 export function DiaryView() {
@@ -577,6 +716,8 @@ export function DiaryView() {
 
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
   const [entryToDelete, setEntryToDelete] = React.useState<JournalEntry | null>(null);
+  const [readerOpen, setReaderOpen] = React.useState(false);
+  const [readerEntry, setReaderEntry] = React.useState<JournalEntry | null>(null);
   const [exporting, setExporting] = React.useState<string | null>(null);
 
   const contentRef = React.useRef<RichEditorHandle | null>(null);
@@ -679,6 +820,18 @@ export function DiaryView() {
     setDate(e.date);
     setExpandedId(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  /** Clicking a calendar day / “Read entry” opens the read-mode view. */
+  const openReadEntry = (e: JournalEntry) => {
+    setReaderEntry(e);
+    setReaderOpen(true);
+  };
+
+  /** “Edit this day” — close the reader, load the day into the editor. */
+  const editFromReader = (e: JournalEntry) => {
+    setReaderOpen(false);
+    openDay(e);
   };
 
   const focusTodayEditor = () => {
@@ -988,7 +1141,7 @@ export function DiaryView() {
           <MoodCalendarCard
             today={today}
             weekStartsOn={(settings?.weekStartsOn ?? 1) as Day}
-            onOpenEntry={openDay}
+            onReadEntry={openReadEntry}
           />
 
           {/* ── Timeline ── */}
@@ -1028,6 +1181,7 @@ export function DiaryView() {
                             setExpandedId(expandedId === e.id ? null : e.id)
                           }
                           onOpenDay={openDay}
+                          onRead={openReadEntry}
                           onDelete={setEntryToDelete}
                         />
                       ))}
@@ -1039,6 +1193,14 @@ export function DiaryView() {
           )}
         </div>
       )}
+
+      <EntryReaderDialog
+        open={readerOpen}
+        entry={readerEntry}
+        today={today}
+        onOpenChange={setReaderOpen}
+        onEditDay={editFromReader}
+      />
 
       <AlertDialog
         open={entryToDelete !== null}

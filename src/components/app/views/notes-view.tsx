@@ -54,6 +54,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 
@@ -65,7 +66,8 @@ import {
   type RichEditorToolbarApi,
 } from "@/components/app/shared/rich-editor";
 import { exportApi, notesApi } from "@/lib/api";
-import { downloadMarkdown, esc, miniMarkdownToHtml, printHtml } from "@/lib/export";
+import { relativeTime } from "@/lib/dates";
+import { downloadMarkdown, esc, miniMarkdownToHtml, printHtml, readingStats } from "@/lib/export";
 import { NOTE_COLORS, type Note, type NoteColor, type NoteInput } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -98,24 +100,16 @@ const COLOR_LABELS: Record<NoteColor, string> = {
   teal: "Teal",
 };
 
-/** "Edited 2h ago" style relative timestamps */
-function relativeTime(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime();
-  if (Number.isNaN(ms)) return "some time ago";
-  const mins = Math.floor(ms / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  const weeks = Math.floor(days / 7);
-  if (weeks < 5) return `${weeks}w ago`;
-  return new Date(iso).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
-}
+
+/** Top gradient strip in the read-mode dialog, per note color. */
+const NOTE_ACCENT: Record<NoteColor, string> = {
+  default: "bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-500",
+  yellow: "bg-gradient-to-r from-amber-400 to-orange-400",
+  green: "bg-gradient-to-r from-emerald-500 to-teal-500",
+  rose: "bg-gradient-to-r from-rose-500 to-pink-500",
+  violet: "bg-gradient-to-r from-violet-500 to-fuchsia-500",
+  teal: "bg-gradient-to-r from-teal-500 to-emerald-500",
+};
 
 // ── Small shared pieces ──────────────────────────────────────
 
@@ -524,6 +518,151 @@ function NoteDialog({
   );
 }
 
+// ── Note read-mode dialog ────────────────────────────
+
+/**
+ * Read-mode dialog — clicking a note card opens this beautifully
+ * rendered view FIRST (never the editor). "Edit note" stacks the
+ * editor on top; saving updates this view live because the note is
+ * derived from the query cache. [[wiki-links]] navigate between
+ * notes without leaving read mode.
+ */
+function NoteReaderDialog({
+  open,
+  note,
+  notes,
+  onOpenChange,
+  onEdit,
+  onOpenNote,
+  onWikiLink,
+}: {
+  open: boolean;
+  note: Note | null;
+  notes: Note[];
+  onOpenChange: (open: boolean) => void;
+  onEdit: (note: Note) => void;
+  onOpenNote: (note: Note) => void;
+  onWikiLink: (title: string) => void;
+}) {
+  // Keep the last note around so the close animation has content.
+  const lastNoteRef = React.useRef<Note | null>(null);
+  if (note) lastNoteRef.current = note;
+  const shown = note ?? lastNoteRef.current;
+
+  const backlinks = React.useMemo(() => {
+    const title = shown?.title.trim().toLowerCase();
+    if (!shown || !title) return [];
+    return notes.filter(
+      (n) => n.id !== shown.id && extractWikiTitles(n.content).includes(title)
+    );
+  }, [notes, shown]);
+
+  if (!shown) return null;
+
+  const stats = readingStats(shown.content);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[88dvh] flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-2xl">
+        <div
+          aria-hidden="true"
+          className={cn(
+            "h-1.5 w-full shrink-0",
+            NOTE_ACCENT[shown.color] ?? NOTE_ACCENT.default
+          )}
+        />
+        <DialogDescription className="sr-only">Reading view</DialogDescription>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6 pt-5 sm:px-8 sm:pt-6">
+          <div className="flex items-start gap-2 pr-8">
+            {shown.pinned && (
+              <Pin
+                className="mt-1 size-4 shrink-0 fill-amber-500 text-amber-500"
+                aria-label="Pinned note"
+              />
+            )}
+            <DialogTitle className="min-w-0 break-words text-left text-lg font-bold leading-snug sm:text-xl">
+              {shown.title || "Untitled note"}
+            </DialogTitle>
+          </div>
+
+          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+            {shown.tag && (
+              <Badge
+                variant="secondary"
+                className="rounded-full px-2 py-0 text-[10px] font-medium"
+              >
+                # {shown.tag}
+              </Badge>
+            )}
+            <span>Edited {relativeTime(shown.updatedAt)}</span>
+            {stats.words > 0 && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span>
+                  {stats.words} {stats.words === 1 ? "word" : "words"}
+                </span>
+                <span aria-hidden="true">·</span>
+                <span>{stats.minutes} min read</span>
+              </>
+            )}
+          </div>
+
+          <Separator className="my-4" />
+
+          <div key={shown.id} className="view-enter">
+            {shown.content.trim() ? (
+              <MarkdownContent
+                content={shown.content}
+                onWikiLink={onWikiLink}
+                className="text-[15px] leading-7 sm:text-base [&_blockquote]:my-3 [&_blockquote]:pl-4 [&_code]:text-[13px] [&_h1]:mb-2 [&_h1]:mt-6 [&_h1]:text-2xl [&_h2]:mb-1.5 [&_h2]:mt-5 [&_h2]:text-xl [&_h3]:mt-4 [&_h3]:text-lg [&_li]:mt-1 [&_ol]:my-2.5 [&_p]:my-2.5 [&_ul]:my-2.5"
+              />
+            ) : (
+              <p className="text-sm italic text-muted-foreground/70">
+                This note is empty — tap “Edit note” to start writing.
+              </p>
+            )}
+          </div>
+
+          {backlinks.length > 0 && (
+            <div className="mt-6 rounded-xl border bg-muted/30 px-3 py-2.5">
+              <p className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                <Link2 className="size-3" aria-hidden="true" /> Mentioned in:
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {backlinks.map((b) => (
+                  <button
+                    key={b.id}
+                    type="button"
+                    onClick={() => onOpenNote(b)}
+                    className="rounded-full border bg-card px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                  >
+                    {b.title || "Untitled note"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t bg-muted/30 px-5 py-3 sm:px-8">
+          <span className="truncate text-[11px] text-muted-foreground">
+            Created{" "}
+            {new Date(shown.createdAt).toLocaleDateString(undefined, {
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+            })}
+          </span>
+          <Button className="h-10 shrink-0 rounded-xl" onClick={() => onEdit(shown)}>
+            <Pencil aria-hidden="true" /> Edit note
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Main view ────────────────────────────────────────────────
 
 export function NotesView() {
@@ -539,8 +678,16 @@ export function NotesView() {
 
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editingNote, setEditingNote] = React.useState<Note | null>(null);
+  const [readerOpen, setReaderOpen] = React.useState(false);
+  const [readerNoteId, setReaderNoteId] = React.useState<string | null>(null);
   const [noteToDelete, setNoteToDelete] = React.useState<Note | null>(null);
   const [exporting, setExporting] = React.useState<string | null>(null);
+
+  // Live note behind the read-mode dialog — derived from the query
+  // cache so edits made in the stacked editor show up instantly.
+  const readerNote = readerNoteId
+    ? notes.find((n) => n.id === readerNoteId) ?? null
+    : null;
 
   const invalidate = (keys: string[]) => {
     for (const key of keys) void queryClient.invalidateQueries({ queryKey: [key] });
@@ -620,6 +767,12 @@ export function NotesView() {
     setDialogOpen(true);
   };
 
+  /** Clicking a note card opens the read-mode view first. */
+  const openReadNote = (note: Note) => {
+    setReaderNoteId(note.id);
+    setReaderOpen(true);
+  };
+
   /** Resolve a [[wiki-link]] title against the loaded notes. */
   const openWikiLink = (title: string) => {
     const needle = title.trim().toLowerCase();
@@ -627,7 +780,7 @@ export function NotesView() {
       (n) => (n.title.trim() || "Untitled note").toLowerCase() === needle
     );
     if (target) {
-      openEditNote(target);
+      openReadNote(target);
     } else {
       toast.info(`No note titled “${title}” yet`);
     }
@@ -852,7 +1005,7 @@ export function NotesView() {
                 <NoteCard
                   key={note.id}
                   note={note}
-                  onOpen={openEditNote}
+                  onOpen={openReadNote}
                   onTogglePin={togglePin}
                   onDelete={setNoteToDelete}
                   onWikiLink={openWikiLink}
@@ -863,6 +1016,18 @@ export function NotesView() {
           )}
         </div>
       )}
+
+      {/* Reader renders BEFORE the editor so the editor dialog stacks
+          on top of it when “Edit note” is tapped. */}
+      <NoteReaderDialog
+        open={readerOpen}
+        note={readerNote}
+        notes={notes}
+        onOpenChange={setReaderOpen}
+        onEdit={openEditNote}
+        onOpenNote={openReadNote}
+        onWikiLink={openWikiLink}
+      />
 
       <NoteDialog
         open={dialogOpen}

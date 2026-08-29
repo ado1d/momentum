@@ -24,6 +24,15 @@ export function downloadJson(json: string, filename: string) {
 }
 
 /**
+ * Word count + estimated reading time (≈200 wpm) for a piece of
+ * writing — powers the "342 words · 2 min read" meta in read mode.
+ */
+export function readingStats(content: string): { words: number; minutes: number } {
+  const words = content.trim() ? content.trim().split(/\s+/).length : 0;
+  return { words, minutes: words === 0 ? 0 : Math.max(1, Math.round(words / 200)) };
+}
+
+/**
  * PDF export via a hidden print container + window.print().
  * Fills #print-root with styled HTML, prints, then restores.
  * On mobile this triggers the native "Save as PDF" sheet.
