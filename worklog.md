@@ -975,3 +975,34 @@ Stage Summary:
 - USER-REPORTED BUG FIXED AND DEPLOYED: the 404 on Settings → Mobile app → Send test was caused by a gitignore pattern silently excluding src/app/api/push/test/ from the mobile-app commit. Route is now live; user should retry "Send test" (no re-install/re-enroll needed).
 - Lesson recorded: scope junk ignore patterns to root; after any "route works locally but 404 in prod" report, FIRST run `git ls-tree -r HEAD --name-only` vs disk + `git check-ignore -v` before suspecting Vercel.
 - REMAINING USER STEPS (unchanged): optional CRON_SECRET env var on Vercel to arm the closed-app daily digest cron; Google OAuth production redirect URI (pending from before); revoke shared credentials when done testing.
+
+---
+Task ID: OFFLINE-FIX (current session)
+Agent: main
+Task: User report: "offline is not fully functional — client side error msg and app crashes; things added in offline don't show; make it like real apps". Plus: previous response was cut off (notes/diary view-mode work was committed as 005b7e6 but never pushed/documented).
+
+Work Log:
+- RECOVERY: dev server dead + dev.log empty again (cron-agent damage pattern); .env had lost NEXTAUTH_SECRET (restored local-dev values: SQLite path + fresh secret + placeholders; chmod 444). Dev restarted with `env -u DATABASE_URL -u DIRECT_URL`.
+- REPRODUCED all three user bugs with agent-browser (session offqa1/offqa2, crafted dev-session cookie):
+  1. Offline-created task VANISHED immediately after creation — invalidated refetch served the SW's STALE cached /api/todos which replaced the optimistic patch ("things added offline don't show").
+  2. Cold-start offline (reload while offline): offline-created item missing entirely.
+  3. No error boundaries existed — ANY render error = Next.js white "client-side exception" page (the "app crashes" report). Views also showed full error cards over cached data on refetch failures.
+- ROOT-CAUSE ARCHITECTURE FLAW: two stale caches (SW Cache API + TanStack persisted cache) both serve pre-offline data on background refetches, silently wiping optimistic patches. Event-time-only patching can never survive that.
+- FIX 1 — offline-cache.ts rewritten: idempotent patches (appendDeduped by id, absolute-body merges, removes, journal upsert-by-date) + NEW reapplyOfflinePatches() that reads the whole queue and re-applies every pending patch; NET-EFFECT pass for flip semantics (habit/routine toggles = odd-count flip with streak/log adjustment; goal progress = summed deltas clamped). New branches: subtask create/patch/delete (nested in parent todo), journal DELETE, todos clear-completed.
+- FIX 2 — patchListCreate: ALWAYS upserts the canonical query key (seeds it even when the view was never opened online) and BORROWS the richest sibling list under the same prefix as the seed base (e.g. always-mounted ["todos","all"] seeds ["todos","full"]) — without this, a task created offline in a never-opened view rendered alone or not at all. Journal seeds the same way from month lists.
+- FIX 3 — providers.tsx: QueryCache config onSuccess (fires ONLY on real fetch resolutions — setQueryData never triggers it, so no loops) → scheduleOfflineReapply (coalescing wrapper with trailing pass).
+- FIX 4 — offline-sync.tsx: replay triggers now online-event + mount + visibilitychange + 30s poll (lie-fi safety); re-applies remaining patches when a replay partially fails; skips sync while genuinely offline (navigator.onLine false).
+- FIX 5 — NEW src/app/error.tsx (route-level, keeps layout, offline-aware copy) + src/app/global-error.tsx (last resort, inline styles, own html/body) — the app NEVER shows the raw crash page again.
+- FIX 6 — view error guards made offline-tolerant: cached data wins over background-refetch errors (dashboard, insights, settings, tasks, routine x2, diary, notes, goals, focus, review-dialog) — offline shows data + badge instead of error cards.
+- FIX 7 — sw.js v3: shellNetworkFirst now pre-caches every /_next/static chunk referenced by a fresh HTML shell BEFORE swapping the cached page (prevents missing-chunk crash when a deploy lands right before an offline moment); CACHE bumped momentum-v2 → v3.
+- FIX 8 — "Syncs when online" amber chip on offline-created items (tasks-view rows + notes-view cards, detected via id.startsWith("offline-")).
+- FIX 9 — lint errors in the unpushed view-mode commit (notes/diary ref-during-render) fixed with React's render-phase state-adjust pattern.
+- QA (agent-browser offqa2/offqa3): offline create → VISIBLE instantly + survives view switches + focus refetches ✓; habit toggle offline → stays toggled with 🔥 streak after view switches (net re-apply) ✓; offline cold start (reload while offline): app shell from SW, offline task VISIBLE with chip, full sibling-borrowed list restored ✓; reconnect → badge tap → all queued changes replayed to server (tasks + habit toggle with doneToday/streak verified in DB) ✓; 9 views × 0 console errors online; mobile 390 no h-overflow; dark mode screenshot clean; lint clean (1 pre-existing warning); tsc clean for src/.
+- DEV-ONLY ARTIFACTS DOCUMENTED: (1) turbopack stale modules — after editing providers/offline-cache the page kept running OLD code (probe + window handle proved it); dev-server restart + caches.delete is the reliable fix — production uses hashed chunks and is immune. (2) agent-browser offline: navigator.onLine flips back true after reload (interception stays) — TanStack onlineManager sees online → queries NOT paused → refetches hit SW cache — this is exactly the lie-fi path the re-apply covers.
+- QA data fully cleaned (qa-offline@example.com user deleted; 0 rows all tables).
+- Committed 630243e (offline overhaul) on top of 005b7e6 (view-mode from the interrupted session — notes/diary read-only reader dialogs with beautiful typography, reading stats, backlinks, Edit-note button). Pushed c73d49a..630243e to GitHub → Vercel auto-deploy.
+
+Stage Summary:
+- USER-REPORTED OFFLINE BUGS FIXED AND DEPLOYED: offline changes now stay visible through refetches/reloads/view switches (re-apply architecture), no more crash pages (error boundaries), views show cached data instead of error screens, SW shell+chunk consistency guaranteed, offline items carry a "Syncs when online" chip, sync triggers are robust (online event + visibility + 30s poll + badge tap).
+- The notes/diary VIEW MODE feature (click → beautiful read-only view, explicit Edit button) from the interrupted session shipped in the same push.
+- KEY LESSON: optimistic offline UI requires RE-APPLICATION after every successful fetch, not just at mutation time — background refetches (focus/mount/poll) constantly try to restore pre-offline server/SW state.
