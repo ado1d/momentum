@@ -1,13 +1,15 @@
-// Settings — account (Google sign-in / sync), appearance, reminders, backups.
+// Settings — account (Google sign-in / sync), appearance, notifications
+// (daily check-in + automatic data reminders), backups, developer contact.
 
 import React, { useState } from "react";
-import { Alert, Pressable, ScrollView, Text, View } from "react-native";
+import { Alert, Image, Linking, Pressable, ScrollView, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as FileSystem from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import * as DocumentPicker from "expo-document-picker";
+import DateTimePicker from "@react-native-community/datetimepicker";
 
-import { db, exportJSON, importJSON } from "../db";
+import { exportJSON, importJSON } from "../db";
 import { useApp, bumpData, DEFAULT_SERVER_URL } from "../store";
 import { signInWithGoogle, signOut } from "../auth";
 import { syncNow } from "../sync";
@@ -21,11 +23,25 @@ import {
   SectionHeading,
   StackHeader,
   Toggle,
+  UserAvatar,
   usePalette,
 } from "../components/ui";
 import type { ThemeMode } from "../theme";
-import { scheduleDailyReminder, sendTestNotification, ensureNotificationPermission } from "../notifications";
-import DateTimePicker from "@react-native-community/datetimepicker";
+import {
+  scheduleDailyReminder,
+  sendTestNotification,
+  ensureNotificationPermission,
+  syncDataReminders,
+  countDataReminders,
+} from "../notifications";
+
+const DEVELOPER = {
+  name: "Ayman Chowdhury",
+  email: "aaymanchowdhury@gmail.com",
+  github: "github.com/ado1d",
+  githubUrl: "https://github.com/ado1d",
+  photo: require("../../assets/developer.jpg"),
+};
 
 export default function SettingsScreen() {
   const { palette } = usePalette();
@@ -34,6 +50,7 @@ export default function SettingsScreen() {
   const [serverDraft, setServerDraft] = useState<string | null>(null);
   const [showReminderTime, setShowReminderTime] = useState(false);
   const [lastMessage, setLastMessage] = useState<string | null>(null);
+  const [reminderCount, setReminderCount] = useState(() => countDataReminders());
 
   const doSignIn = async () => {
     setBusy(true);
@@ -86,7 +103,28 @@ export default function SettingsScreen() {
     }
   };
 
-  const initial = (app.auth?.name ?? app.auth?.email ?? "?")[0].toUpperCase();
+  const toggleAutoReminders = async (v: boolean) => {
+    if (v) {
+      const granted = await ensureNotificationPermission();
+      if (!granted) {
+        Alert.alert("Permission needed", "Allow notifications for Momentum in system settings first.");
+        return;
+      }
+    }
+    app.setAutoReminders(v);
+    const summary = await syncDataReminders();
+    setReminderCount(countDataReminders());
+    if (v) {
+      toast.success(
+        summary.scheduled > 0
+          ? `${summary.scheduled} reminder${summary.scheduled === 1 ? "" : "s"} scheduled`
+          : "Auto reminders on — add times to routine blocks & tasks",
+      );
+    } else {
+      toast.info("Automatic reminders turned off");
+    }
+  };
+
   const reminderDate = new Date();
   reminderDate.setHours(app.reminderHour, app.reminderMinute, 0, 0);
 
@@ -102,18 +140,7 @@ export default function SettingsScreen() {
         {app.auth ? (
           <>
             <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <View
-                style={{
-                  width: 48,
-                  height: 48,
-                  borderRadius: 999,
-                  backgroundColor: palette.primarySoft,
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Text style={{ fontSize: 20, fontWeight: "800", color: palette.primary }}>{initial}</Text>
-              </View>
+              <UserAvatar uri={app.auth.image} name={app.auth.name} email={app.auth.email} size={52} />
               <View style={{ flex: 1, marginLeft: 13 }}>
                 <Text style={{ fontSize: 15.5, fontWeight: "700", color: palette.text }} numberOfLines={1}>
                   {app.auth.name ?? "Signed in"}
@@ -172,15 +199,39 @@ export default function SettingsScreen() {
       </Card>
 
       {/* Notifications */}
-      <SectionHeading title="Daily reminder" />
+      <SectionHeading title="Notifications" />
       <Card>
+        {/* Automatic data reminders */}
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
           <View style={{ flex: 1, paddingRight: 12 }}>
-            <Text style={{ fontSize: 14.5, fontWeight: "600", color: palette.text }}>Reminder notification</Text>
+            <Text style={{ fontSize: 14.5, fontWeight: "600", color: palette.text }}>Automatic reminders</Text>
+            <Text style={{ fontSize: 12, color: palette.textDim, marginTop: 2, lineHeight: 17 }}>
+              Routine blocks remind you at their time, habits at their reminder time, tasks at their set reminder.
+            </Text>
+            {app.autoReminders ? (
+              <View style={{ flexDirection: "row", alignItems: "center", marginTop: 7 }}>
+                <Ionicons name="notifications" size={12} color={palette.primary} />
+                <Text style={{ fontSize: 11.5, fontWeight: "700", color: palette.primary, marginLeft: 4 }}>
+                  {reminderCount.scheduled > 0
+                    ? `${reminderCount.scheduled} scheduled · ${reminderCount.routine} routine · ${reminderCount.habits} habits · ${reminderCount.tasks} tasks`
+                    : "None yet — add a time to a routine block or habit"}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+          <Toggle value={app.autoReminders} onChange={(v) => void toggleAutoReminders(v)} />
+        </View>
+
+        <View style={{ height: 1, backgroundColor: palette.border, marginVertical: 14 }} />
+
+        {/* Daily check-in */}
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <View style={{ flex: 1, paddingRight: 12 }}>
+            <Text style={{ fontSize: 14.5, fontWeight: "600", color: palette.text }}>Daily check-in</Text>
             <Text style={{ fontSize: 12, color: palette.textDim, marginTop: 2 }}>
               {app.reminderEnabled
                 ? `Every day at ${String(app.reminderHour).padStart(2, "0")}:${String(app.reminderMinute).padStart(2, "0")}`
-                : "Off"}
+                : "A gentle nudge at a set time"}
             </Text>
           </View>
           <Toggle
@@ -271,11 +322,119 @@ export default function SettingsScreen() {
         ) : null}
       </Card>
 
+      {/* Developer */}
+      <SectionHeading title="Developer" />
+      <Card style={{ alignItems: undefined }}>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <Image
+            source={DEVELOPER.photo}
+            style={{
+              width: 62,
+              height: 62,
+              borderRadius: 999,
+              borderWidth: 2,
+              borderColor: palette.primary,
+            }}
+            accessible
+            accessibilityLabel="Portrait of Ayman Chowdhury"
+          />
+          <View style={{ flex: 1, marginLeft: 14 }}>
+            <Text style={{ fontSize: 16, fontWeight: "800", color: palette.text }}>{DEVELOPER.name}</Text>
+            <Text style={{ fontSize: 12, color: palette.textDim, marginTop: 2 }}>
+              Creator & developer of Momentum
+            </Text>
+            <View
+              style={{
+                alignSelf: "flex-start",
+                flexDirection: "row",
+                alignItems: "center",
+                borderRadius: 999,
+                backgroundColor: palette.primarySoft,
+                paddingHorizontal: 9,
+                paddingVertical: 3,
+                marginTop: 7,
+              }}
+            >
+              <Ionicons name="heart" size={11} color={palette.primary} />
+              <Text style={{ fontSize: 10.5, fontWeight: "700", color: palette.primary, marginLeft: 4 }}>
+                Built with care
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={{ height: 1, backgroundColor: palette.border, marginVertical: 13 }} />
+
+        <ContactRow
+          icon="mail-outline"
+          label="Email"
+          value={DEVELOPER.email}
+          onPress={() => void Linking.openURL(`mailto:${DEVELOPER.email}`).catch(() => undefined)}
+        />
+        <ContactRow
+          icon="logo-github"
+          label="GitHub"
+          value={DEVELOPER.github}
+          onPress={() => void Linking.openURL(DEVELOPER.githubUrl).catch(() => undefined)}
+          last
+        />
+      </Card>
+
       <Text style={{ textAlign: "center", color: palette.textFaint, fontSize: 12, marginTop: 20, marginBottom: 8 }}>
-        Momentum v1.1.0 · offline-first · your data, your device
+        Momentum v1.2.0 · offline-first · your data, your device
       </Text>
       </ScrollView>
     </View>
+  );
+}
+
+function ContactRow({
+  icon,
+  label,
+  value,
+  onPress,
+  last,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+  onPress: () => void;
+  last?: boolean;
+}) {
+  const { palette } = usePalette();
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        {
+          flexDirection: "row",
+          alignItems: "center",
+          paddingVertical: 10,
+        },
+        !last && { borderBottomWidth: 1, borderBottomColor: palette.border },
+        pressed && { opacity: 0.7 },
+      ]}
+    >
+      <View
+        style={{
+          width: 34,
+          height: 34,
+          borderRadius: 11,
+          backgroundColor: palette.cardAlt,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Ionicons name={icon} size={16} color={palette.primary} />
+      </View>
+      <View style={{ flex: 1, marginLeft: 11 }}>
+        <Text style={{ fontSize: 10.5, fontWeight: "700", color: palette.textFaint, letterSpacing: 0.5 }}>
+          {label.toUpperCase()}
+        </Text>
+        <Text style={{ fontSize: 13.5, fontWeight: "600", color: palette.text, marginTop: 1 }}>{value}</Text>
+      </View>
+      <Ionicons name="open-outline" size={15} color={palette.textFaint} />
+    </Pressable>
   );
 }
 

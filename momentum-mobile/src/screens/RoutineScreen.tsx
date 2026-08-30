@@ -34,6 +34,7 @@ const DAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
 export default function RoutineScreen() {
   const { palette } = usePalette();
   const version = useApp((s) => s.dataVersion);
+  const autoReminders = useApp((s) => s.autoReminders);
   const [tab, setTab] = useState<"habits" | "schedule">("habits");
   const [selectedDay, setSelectedDay] = useState(dayKey());
   const [habitEditor, setHabitEditor] = useState<{ open: boolean; id: string | null }>({ open: false, id: null });
@@ -204,6 +205,7 @@ export default function RoutineScreen() {
                     key={t.id}
                     task={t}
                     palette={palette}
+                    remindersOn={autoReminders}
                     onToggle={() => {
                       data.toggleRoutineTask(t.id, selectedDay);
                       bumpData();
@@ -255,11 +257,13 @@ function RoutineRow({
   palette,
   onToggle,
   onOpen,
+  remindersOn,
 }: {
   task: data.RoutineTaskWithDone;
   palette: Palette;
   onToggle: () => void;
   onOpen: () => void;
+  remindersOn: boolean;
 }) {
   return (
     <View
@@ -299,6 +303,9 @@ function RoutineRow({
           </Text>
           {task.time ? (
             <View style={{ flexDirection: "row", alignItems: "center" }}>
+              {remindersOn ? (
+                <Ionicons name="notifications" size={12} color={palette.primary} style={{ marginRight: 3 }} />
+              ) : null}
               <Ionicons name="time-outline" size={12} color={palette.textFaint} />
               <Text style={{ fontSize: 12, color: palette.textDim, marginLeft: 3 }}>{task.time}</Text>
             </View>
@@ -320,6 +327,8 @@ function HabitEditorSheet({ visible, habitId, onClose }: { visible: boolean; hab
   const [emoji, setEmoji] = useState("✅");
   const [color, setColor] = useState("emerald");
   const [timeOfDay, setTimeOfDay] = useState("anytime");
+  const [reminderTime, setReminderTime] = useState<string | null>(null);
+  const [showReminderPicker, setShowReminderPicker] = useState(false);
   const [loaded, setLoaded] = useState<string | null | undefined>(undefined);
 
   React.useEffect(() => {
@@ -334,6 +343,7 @@ function HabitEditorSheet({ visible, habitId, onClose }: { visible: boolean; hab
         setEmoji(h.emoji);
         setColor(h.color);
         setTimeOfDay(h.timeOfDay);
+        setReminderTime(h.reminderTime);
         return;
       }
     }
@@ -341,15 +351,17 @@ function HabitEditorSheet({ visible, habitId, onClose }: { visible: boolean; hab
     setEmoji("✅");
     setColor("emerald");
     setTimeOfDay("anytime");
+    setReminderTime(null);
   }, [visible, habitId, loaded]);
 
   const save = () => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    data.saveHabit(habitId, { name: trimmed, emoji, color, timeOfDay });
+    data.saveHabit(habitId, { name: trimmed, emoji, color, timeOfDay, reminderTime });
     bumpData();
     scheduleSync();
     toast.success(habitId ? "Habit updated" : "Habit started — day one of the streak");
+    if (reminderTime) toast.info(`⏰ You'll be reminded daily at ${reminderTime}`);
     onClose();
   };
 
@@ -431,6 +443,31 @@ function HabitEditorSheet({ visible, habitId, onClose }: { visible: boolean; hab
           <Chip key={t} label={titleCase(t)} active={timeOfDay === t} onPress={() => setTimeOfDay(t)} />
         ))}
       </View>
+
+      <FieldLabel>Daily reminder (optional)</FieldLabel>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center" }}>
+        <Chip
+          label={reminderTime ? `⏰ ${reminderTime}` : "Add reminder time"}
+          active={!!reminderTime}
+          onPress={() => setShowReminderPicker(true)}
+        />
+        {reminderTime ? <Chip label="Clear" onPress={() => setReminderTime(null)} /> : null}
+      </View>
+      {showReminderPicker ? (
+        <DateTimePickerInline
+          initial="08:00"
+          onPick={(t) => {
+            setReminderTime(t);
+            setShowReminderPicker(false);
+          }}
+          onCancel={() => setShowReminderPicker(false)}
+        />
+      ) : null}
+      {reminderTime ? (
+        <Text style={{ color: palette.primary, fontSize: 11.5, marginTop: 6 }}>
+          You'll get a notification every day at {reminderTime}.
+        </Text>
+      ) : null}
     </Sheet>
   );
 }
@@ -547,6 +584,24 @@ function RoutineEditorSheet({ visible, taskId, onClose }: { visible: boolean; ta
       {showTime ? (
         <DateTimePickerInline onPick={(t) => { setTime(t); setShowTime(false); }} onCancel={() => setShowTime(false)} />
       ) : null}
+      {time ? (
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            backgroundColor: palette.primarySoft,
+            borderRadius: 12,
+            paddingHorizontal: 11,
+            paddingVertical: 9,
+            marginTop: 10,
+          }}
+        >
+          <Ionicons name="notifications" size={14} color={palette.primary} />
+          <Text style={{ color: palette.primary, fontSize: 12, fontWeight: "600", marginLeft: 7, flex: 1 }}>
+            Reminder fires automatically at {time} on the selected days
+          </Text>
+        </View>
+      ) : null}
 
       <FieldLabel>Days</FieldLabel>
       <View style={{ flexDirection: "row", gap: 8 }}>
@@ -577,9 +632,10 @@ function RoutineEditorSheet({ visible, taskId, onClose }: { visible: boolean; ta
   );
 }
 
-function DateTimePickerInline({ onPick, onCancel }: { onPick: (time: string) => void; onCancel: () => void }) {
+function DateTimePickerInline({ onPick, onCancel, initial }: { onPick: (time: string) => void; onCancel: () => void; initial?: string }) {
   const base = new Date();
-  base.setHours(8, 0, 0, 0);
+  const [h, m] = (initial ?? "08:00").split(":").map((n) => parseInt(n, 10));
+  base.setHours(Number.isFinite(h) ? h : 8, Number.isFinite(m) ? m : 0, 0, 0);
   return (
     <DateTimePicker
       value={base}

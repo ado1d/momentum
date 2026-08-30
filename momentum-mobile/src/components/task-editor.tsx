@@ -44,6 +44,7 @@ export function TaskEditorSheet({
   const [repeat, setRepeat] = useState("none");
   const [dueDate, setDueDate] = useState<Date | null>(null);
   const [hasTime, setHasTime] = useState(false);
+  const [reminderOffset, setReminderOffset] = useState<number | null>(null); // minutes before due (null = none)
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [subtasks, setSubtasks] = useState<data.Subtask[]>([]);
@@ -66,6 +67,15 @@ export function TaskEditorSheet({
         const d = t.dueDate ? new Date(t.dueDate) : null;
         setDueDate(d);
         setHasTime(!!(t.dueDate && new Date(t.dueDate).getHours() + new Date(t.dueDate).getMinutes() > 0));
+        // Reverse-engineer the offset from the stored reminderAt.
+        if (t.reminderAt && t.dueDate) {
+          const off = Math.round(
+            (new Date(t.dueDate).getTime() - new Date(t.reminderAt).getTime()) / 60000,
+          );
+          setReminderOffset(off === 0 || off === 15 || off === 60 ? off : 0);
+        } else {
+          setReminderOffset(null);
+        }
         setSubtasks(data.subtasksOf(idToLoad));
         return;
       }
@@ -76,6 +86,7 @@ export function TaskEditorSheet({
     setCategory("personal");
     setRepeat("none");
     setSubtasks([]);
+    setReminderOffset(null);
     if (presetDueToday) {
       const d = new Date();
       d.setHours(9, 0, 0, 0);
@@ -98,6 +109,10 @@ export function TaskEditorSheet({
       }
       dateISO = d.toISOString();
     }
+    let reminderISO: string | null = null;
+    if (dateISO && hasTime && reminderOffset !== null) {
+      reminderISO = new Date(new Date(dateISO).getTime() - reminderOffset * 60000).toISOString();
+    }
     data.saveTodo(todoId, {
       title: trimmed,
       notes: notes.trim() || null,
@@ -105,10 +120,12 @@ export function TaskEditorSheet({
       category,
       repeat,
       dueDate: dateISO,
+      reminderAt: reminderISO,
     });
     bumpData();
     scheduleSync();
     toast.success(todoId ? "Task updated" : "Task added");
+    if (reminderISO) toast.info(`⏰ Reminder set for ${formatTime(reminderISO)}`);
     onClose();
   };
 
@@ -187,10 +204,22 @@ export function TaskEditorSheet({
               active={hasTime}
               onPress={() => setShowTimePicker(true)}
             />
-            <Chip label="Clear" onPress={() => { setDueDate(null); setHasTime(false); }} />
+            <Chip label="Clear" onPress={() => { setDueDate(null); setHasTime(false); setReminderOffset(null); }} />
           </>
         ) : null}
       </View>
+
+      {dueDate && hasTime ? (
+        <>
+          <FieldLabel>Reminder</FieldLabel>
+          <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+            <Chip label="At time" active={reminderOffset === 0} onPress={() => setReminderOffset(0)} />
+            <Chip label="15 min before" active={reminderOffset === 15} onPress={() => setReminderOffset(15)} />
+            <Chip label="1 hour before" active={reminderOffset === 60} onPress={() => setReminderOffset(60)} />
+            <Chip label="No reminder" active={reminderOffset === null} onPress={() => setReminderOffset(null)} />
+          </View>
+        </>
+      ) : null}
 
       {showDatePicker && (
         <DateTimePicker

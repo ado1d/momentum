@@ -1,10 +1,11 @@
 // Shared UI building blocks — mirrors the Momentum web app's design language
 // (rounded-2xl cards, emerald primary, pill tabs, shadcn-like inputs).
 
-import React, { ReactNode } from "react";
+import React, { ReactNode, useState } from "react";
 import {
   ActivityIndicator,
   I18nManager,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -689,6 +690,56 @@ export function Fab({
 }
 
 // ── Offline pill ─────────────────────────────────────────────
+
+// ── User avatar (Google profile photo with initials fallback) ──
+
+export function UserAvatar({
+  uri,
+  name,
+  email,
+  size = 34,
+  borderRadius,
+}: {
+  uri?: string | null;
+  name?: string | null;
+  email?: string | null;
+  size?: number;
+  borderRadius?: number;
+}) {
+  const { palette } = usePalette();
+  const [failed, setFailed] = useState(false);
+  const initial = (name ?? email ?? "M").trim().charAt(0).toUpperCase() || "M";
+  const showImage = !!uri && !failed;
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: borderRadius ?? 999,
+        backgroundColor: palette.primarySoft,
+        borderWidth: 1,
+        borderColor: palette.border,
+        alignItems: "center",
+        justifyContent: "center",
+        overflow: "hidden",
+      }}
+    >
+      {showImage ? (
+        <Image
+          source={{ uri: uri as string }}
+          style={{ width: size, height: size }}
+          onError={() => setFailed(true)}
+          accessible
+          accessibilityLabel={name ? `${name}'s profile photo` : "Profile photo"}
+        />
+      ) : (
+        <Text style={{ color: palette.primary, fontWeight: "800", fontSize: Math.max(12, size * 0.4) }}>
+          {initial}
+        </Text>
+      )}
+    </View>
+  );
+}
 
 export function OfflinePill() {
   const { palette } = usePalette();

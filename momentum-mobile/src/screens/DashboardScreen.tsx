@@ -24,13 +24,15 @@ import {
 } from "../components/ui";
 import { TaskEditorSheet } from "../components/task-editor";
 import { MOODS, PRIORITY_COLORS, quoteForDay, accentColor, type Palette } from "../theme";
-import { dayKey, formatDateLong, formatTime, greeting, minutesToClock, relativeDay } from "../utils";
+import { dayKey, firstName, formatDateLong, formatTime, greeting, minutesToClock, relativeDay } from "../utils";
 
 export default function DashboardScreen() {
   const { palette } = usePalette();
   const navigation = useNavigation<any>();
   const version = useApp((s) => s.dataVersion);
   const setQuickAddOpen = useApp((s) => s.setQuickAddOpen);
+  const auth = useApp((s) => s.auth);
+  const who = firstName(auth?.name);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -75,7 +77,7 @@ export default function DashboardScreen() {
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 18, marginTop: 4 }}>
         <View style={{ flex: 1 }}>
           <Text style={{ color: palette.primary, fontSize: 22, fontWeight: "800", letterSpacing: -0.4 }}>
-            {greeting()}
+            {greeting()}{who ? `, ${who}` : ""}
           </Text>
           <Text style={{ color: palette.textDim, fontSize: 13.5, marginTop: 2 }}>{formatDateLong()}</Text>
         </View>

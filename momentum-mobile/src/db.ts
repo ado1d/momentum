@@ -630,6 +630,14 @@ export function routineForDay(date: string): RoutineTaskWithDone[] {
   }));
 }
 
+/** All live routine tasks (any weekday) — used by the reminder scheduler. */
+export function routineTasksAll(): RoutineTask[] {
+  return list<RoutineTask & AnyRow>(
+    "routineTasks",
+    "WHERE deletedAt IS NULL AND archived = 0 ORDER BY sortOrder ASC",
+  ) as unknown as RoutineTask[];
+}
+
 export function toggleRoutineTask(taskId: string, date: string): boolean {
   const existing = db.getFirstSync<RoutineLog & AnyRow>(
     "SELECT * FROM routineLogs WHERE taskId = ? AND date = ?",
@@ -717,8 +725,21 @@ export function notesList(search = ""): Note[] {
   if (!q) return rows as unknown as Note[];
   return (rows as unknown as Note[]).filter(
     (n) =>
-      n.title.toLowerCase().includes(q) || n.content.toLowerCase().includes(q),
+      n.title.toLowerCase().includes(q) ||
+      n.content.toLowerCase().includes(q) ||
+      (n.tag ?? "").toLowerCase().includes(q),
   );
+}
+
+/** Distinct tags across notes, alphabetical — for the filter chips. */
+export function noteTags(notes: Note[]): { tag: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const n of notes) {
+    if (n.tag) counts.set(n.tag, (counts.get(n.tag) ?? 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([tag, count]) => ({ tag, count }))
+    .sort((a, b) => a.tag.localeCompare(b.tag));
 }
 
 export function getNote(id: string): Note | null {

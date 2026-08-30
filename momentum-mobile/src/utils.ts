@@ -134,18 +134,47 @@ export function formatClock(totalSeconds: number): string {
   return `${pad2(Math.floor(s / 60))}:${pad2(s % 60)}`;
 }
 
-/** Parse query params out of a custom-scheme URL like momentum://auth?token=… */
+/** Parse query params out of a custom-scheme URL like momentum://auth?token=…
+ *  Values are form-encoded — `+` means space (URLSearchParams convention),
+ *  which decodeURIComponent alone would leave as a literal "+" in names. */
 export function parseUrlQuery(url: string): Record<string, string> {
   const qIndex = url.indexOf("?");
   if (qIndex === -1) return {};
   const out: Record<string, string> = {};
   for (const pair of url.slice(qIndex + 1).split("&")) {
     const [k, v] = pair.split("=");
-    if (k) out[decodeURIComponent(k)] = decodeURIComponent(v ?? "");
+    if (k) out[decodeURIComponent(k)] = decodeURIComponent((v ?? "").replace(/\+/g, " "));
   }
   return out;
 }
 
 export function titleize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** "just now", "5m ago", "2h ago", "3d ago" or "Mar 3" — web's relativeTime. */
+export function relativeTime(iso: string | Date): string {
+  const d = typeof iso === "string" ? new Date(iso) : iso;
+  const diff = Date.now() - d.getTime();
+  const min = Math.round(diff / 60000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min}m ago`;
+  const hours = Math.round(min / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/** Reading stats like the web app (words + estimated minutes). */
+export function readingStats(text: string): { words: number; minutes: number } {
+  const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+  return { words, minutes: Math.max(1, Math.round(words / 200)) };
+}
+
+/** First name for greetings — "Ayman Chowdhury" → "Ayman". */
+export function firstName(name: string | null | undefined): string | null {
+  if (!name) return null;
+  const first = name.trim().split(/\s+/)[0];
+  return first || null;
 }

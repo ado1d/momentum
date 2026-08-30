@@ -3,13 +3,14 @@
 // bottom tabs (Dashboard · Tasks · Routine · Goals · More-sheet),
 // global Quick Add + toasts.
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { StatusBar } from "expo-status-bar";
 import { NavigationContainer, createNavigationContainerRef, DefaultTheme, DarkTheme } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
 import {
+  AppState,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -24,8 +25,8 @@ import * as SplashScreen from "expo-splash-screen";
 import * as Network from "expo-network";
 
 import { useApp } from "./src/store";
-import { syncNow, scheduleSync } from "./src/sync";
-import { usePalette } from "./src/components/ui";
+import { syncNow } from "./src/sync";
+import { UserAvatar, usePalette } from "./src/components/ui";
 import { toast, ToastHost } from "./src/toast";
 import { QuickAddSheet } from "./src/quick-add";
 import { BellSheet } from "./src/components/bell-sheet";
@@ -40,7 +41,7 @@ import NotesScreen from "./src/screens/NotesScreen";
 import DiaryScreen from "./src/screens/DiaryScreen";
 import SettingsScreen from "./src/screens/SettingsScreen";
 import SearchScreen from "./src/screens/SearchScreen";
-import { scheduleDailyReminder } from "./src/notifications";
+import { scheduleDailyReminder, syncDataReminders } from "./src/notifications";
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
@@ -124,8 +125,6 @@ function TopBar({ onBell }: { onBell: () => void }) {
   const { palette } = usePalette();
   const auth = useApp((s) => s.auth);
   const setQuickAddOpen = useApp((s) => s.setQuickAddOpen);
-  const insets = useSafeAreaInsets();
-  const initial = (auth?.name ?? auth?.email ?? "M")[0]?.toUpperCase() ?? "M";
   return (
     <SafeAreaView
       edges={["top"]}
@@ -178,21 +177,14 @@ function TopBar({ onBell }: { onBell: () => void }) {
               <Ionicons name="add" size={22} color={palette.onPrimary} />
             </View>
           </Pressable>
-          <View
-            style={{
-              width: 34,
-              height: 34,
-              borderRadius: 999,
-              backgroundColor: palette.primarySoft,
-              alignItems: "center",
-              justifyContent: "center",
-              marginLeft: 6,
-              borderWidth: 1,
-              borderColor: palette.border,
-            }}
+          {/* Google profile photo (falls back to initials) — opens Settings */}
+          <Pressable
+            onPress={() => navigationRef.navigate("Settings")}
+            hitSlop={6}
+            style={{ marginLeft: 6 }}
           >
-            <Text style={{ color: palette.primary, fontSize: 14, fontWeight: "800" }}>{initial}</Text>
-          </View>
+            <UserAvatar uri={auth?.image} name={auth?.name} email={auth?.email} size={34} borderRadius={999} />
+          </Pressable>
         </View>
       </View>
     </SafeAreaView>
@@ -426,6 +418,7 @@ function Root() {
   const hydrate = useApp((s) => s.hydrate);
   const theme = useApp((s) => s.theme);
   const auth = useApp((s) => s.auth);
+  const dataVersion = useApp((s) => s.dataVersion);
   const system = useColorScheme();
   const [moreOpen, setMoreOpen] = useState(false);
   const [bellOpen, setBellOpen] = useState(false);
@@ -469,14 +462,40 @@ function Root() {
     };
   }, []);
 
-  // Sync on app start (after hydration) and arm the daily reminder.
+  // Sync on app start (after hydration) and arm the daily reminder +
+  // automatic data reminders (routine blocks / habits / task reminders).
   useEffect(() => {
     if (!hydrated) return;
     if (useApp.getState().auth) {
       void syncNow(false);
     }
     void scheduleDailyReminder().catch(() => undefined);
+    void syncDataReminders().catch(() => undefined);
   }, [hydrated, auth?.token]);
+
+  // Keep automatic reminders in sync with the data — re-run (debounced)
+  // whenever anything changes, and refresh when the app returns to focus.
+  const reminderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!hydrated) return;
+    if (reminderTimer.current) clearTimeout(reminderTimer.current);
+    reminderTimer.current = setTimeout(() => {
+      void syncDataReminders().catch(() => undefined);
+    }, 3500);
+    return () => {
+      if (reminderTimer.current) clearTimeout(reminderTimer.current);
+    };
+  }, [hydrated, dataVersion]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        void syncDataReminders().catch(() => undefined);
+      }
+    });
+    return () => sub.remove();
+  }, [hydrated]);
 
   const navTheme = dark
     ? {

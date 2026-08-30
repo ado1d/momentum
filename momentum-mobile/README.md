@@ -1,21 +1,21 @@
-# Momentum for Android 📱 (v1.1 — the "looks & works like the web app" release)
+# Momentum for Android 📱 (v1.2 — tags, reading views & automatic reminders)
 
 The full Momentum productivity app as a **native Android app** — built with Expo (React Native).
 It works **100% offline** (everything is stored in the phone's local SQLite database) and can
 **sign in with Google** to sync with your Momentum web account.
 
-> **Upgrading from v1.0?** This release fixes the issues you hit:
-> - **You can now add tasks / notes / diary entries** — the editor sheets had a layout bug
->   that collapsed the input area to zero height on Android. Fixed everywhere.
-> - **The UI now mirrors the web app** — same top bar (brand · search · bell · quick-add ·
->   avatar), same bottom tabs (Dashboard · Tasks · Routine · Goals · More), same dashboard
->   (greeting, quote, stat cards, this-week chart, overdue banner, sections), same
->   emerald/teal theme in light & dark.
-> - **New: Quick Add** (+ in the top bar) with Task / Note / Diary tabs — exactly like the web.
-> - **New: global search**, bell menu ("what needs you today"), toast feedback, SVG progress
->   rings, onboarding card with starter habits.
-> - **Fixed:** content drawing under the status bar; the +/FAB button being covered by the
->   tab bar; note editor's ✕ saving instead of discarding; search now finds completed tasks.
+> **Upgrading from v1.1?** This release adds what was missing:
+> - **Note tags** — tags show on note cards, filter chips (#tag with counts) under search, and
+>   the note editor has a Tag field with suggestions. Search also matches tags now.
+> - **Reading views** — tapping a note (or a diary entry) opens a beautiful READ view first
+>   (color accent, tag + reading stats, markdown rendering, backlinks) with an explicit
+>   **Edit** button — exactly like the web app, instead of dropping you into the editor.
+> - **Automatic reminders** — routine blocks with a time now remind you weekly on their days,
+>   habits can have a daily reminder time, and tasks can remind you At time / 15 min / 1 hour
+>   before. One toggle in Settings → Notifications, on by default.
+> - **Your name & photo** — the top-bar avatar shows your Google profile picture (tappable →
+>   Settings), the dashboard greets you by name, and the “Ayman+Chowdhury” `+` bug is fixed.
+> - **Developer contact card** in Settings — Ayman Chowdhury, email & GitHub.
 >
 > Install the new APK **over** the old one (same package name) — your existing data stays.
 
@@ -24,14 +24,14 @@ Same features as the web app:
 | Area | What you get |
 | --- | --- |
 | **Dashboard** | Greeting + score pill, quote card, 2×2 stat cards (score ring, tasks, habits, streak), this-week chart, overdue banner, today's focus, habit chips with week dots, active goals, recent journal |
-| **Tasks** | All/Today/Upcoming/Done tabs, priorities, categories, due dates & times, repeat rules, checklists (subtasks) |
-| **Routine** | Habits with streaks & 7-day history + morning/afternoon/evening schedule blocks with a week strip |
+| **Tasks** | All/Today/Upcoming/Done tabs, priorities, categories, due dates & times, reminders, repeat rules, checklists (subtasks) |
+| **Routine** | Habits with streaks, 7-day history & reminder times + morning/afternoon/evening schedule blocks with a week strip |
 | **Goals** | Daily/weekly/monthly goals with progress bars, +/- steppers and categories |
-| **Notes** | Colored, pinnable, searchable notes in a 2-column grid |
-| **Diary** | One entry per day: mood, energy, gratitude, free writing, recent-entries timeline |
+| **Notes** | Colored, pinnable, searchable notes with **tags** (#tag filter chips) and a beautiful **reading view** |
+| **Diary** | One entry per day: mood, energy, gratitude, free writing + **reading view** for past entries |
 | **Focus** | Pomodoro timer with presets, task linking and session history |
 | **Insights** | Task/focus/habit charts, habit consistency, mood distribution, all-time totals |
-| **Settings** | Google sign-in & sync, dark/light theme, daily reminder, JSON backup export/import |
+| **Settings** | Google sign-in & sync, dark/light theme, daily check-in + automatic reminders, JSON backup export/import, developer contact |
 | **Everywhere** | Quick Add sheet (Task/Note/Diary), global search, bell menu, toasts, offline-first |
 
 ---
@@ -145,14 +145,15 @@ momentum-mobile/
     ├── sync.ts             # Background sync engine (last-write-wins)
     ├── auth.ts             # Google sign-in flow
     ├── store.ts            # Global state (zustand), persisted in SQLite
-    ├── notifications.ts    # Daily reminder
+    ├── notifications.ts    # Daily check-in + AUTOMATIC reminders (routine/habits/tasks)
     ├── quick-add.tsx       # Quick Add sheet (Task / Note / Diary)
     ├── toast.tsx           # Sonner-style toast feedback
     ├── theme.ts            # Dark/light palettes (matches the web app) + quotes
     ├── utils.ts            # Dates, streaks, formatting
     ├── components/
-    │   ├── ui.tsx          # Buttons, cards, chips, sheets, SVG rings, section headings…
-    │   ├── task-editor.tsx # Task create/edit sheet
+    │   ├── ui.tsx          # Buttons, cards, chips, sheets, SVG rings, avatars…
+    │   ├── task-editor.tsx # Task create/edit sheet (with reminder options)
+    │   ├── mini-md.tsx     # Lightweight markdown renderer (reading views)
     │   └── bell-sheet.tsx  # "What needs you today" notifications menu
     └── screens/            # Dashboard, Tasks, Routine, Goals (tabs)
                             # + Focus, Insights, Notes, Diary, Settings, Search (stack)
@@ -172,7 +173,7 @@ momentum-mobile/
 | Metro cache weirdness | `npx expo start -c` |
 | Google sign-in returns "not configured" | The redirect URI above isn't added (or GOOGLE_CLIENT_ID/SECRET env vars missing on the server) |
 | APK won't install | Allow "install unknown apps" for your browser in Android settings |
-| Reminder notifications don't fire | Check the phone's battery optimization isn't killing Momentum (common on Xiaomi/Oppo) |
+| Reminder notifications don't fire | Check the phone's battery optimization isn't killing Momentum (common on Xiaomi/Oppo); also make sure notifications are allowed for the app in Android settings |
 | Installing the new APK over the old one | Just install it — data is kept (same package name). If Android refuses, uninstall first and re-import a backup (Settings → Export before uninstalling) |
 
 ---

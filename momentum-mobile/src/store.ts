@@ -20,6 +20,7 @@ interface AppState {
   reminderEnabled: boolean;
   reminderHour: number;
   reminderMinute: number;
+  autoReminders: boolean;
   dataVersion: number;
   online: boolean;
   syncing: boolean;
@@ -33,6 +34,7 @@ interface AppState {
   setAutoSync: (v: boolean) => void;
   setServerUrl: (v: string) => void;
   setReminder: (enabled: boolean, hour?: number, minute?: number) => void;
+  setAutoReminders: (v: boolean) => void;
   setOnline: (v: boolean) => void;
   setSyncing: (v: boolean) => void;
   setSyncDone: (iso: string | null, message: string | null) => void;
@@ -41,7 +43,7 @@ interface AppState {
   setQuickAddOpen: (v: boolean) => void;
 }
 
-const PERSIST_KEYS = ["auth", "theme", "autoSync", "serverUrl", "reminderEnabled", "reminderHour", "reminderMinute", "lastSyncAt"] as const;
+const PERSIST_KEYS = ["auth", "theme", "autoSync", "serverUrl", "reminderEnabled", "reminderHour", "reminderMinute", "autoReminders", "lastSyncAt"] as const;
 
 interface PersistedShape {
   auth: AuthUser | null;
@@ -51,6 +53,7 @@ interface PersistedShape {
   reminderEnabled: boolean;
   reminderHour: number;
   reminderMinute: number;
+  autoReminders: boolean;
   lastSyncAt: string | null;
 }
 
@@ -64,6 +67,7 @@ const DEFAULTS: PersistedShape = {
   reminderEnabled: false,
   reminderHour: 9,
   reminderMinute: 0,
+  autoReminders: true,
   lastSyncAt: null,
 };
 
@@ -80,6 +84,7 @@ export const useApp = create<AppState>((set, get) => ({
   reminderEnabled: false,
   reminderHour: 9,
   reminderMinute: 0,
+  autoReminders: true,
   dataVersion: 0,
   online: true,
   syncing: false,
@@ -100,6 +105,15 @@ export const useApp = create<AppState>((set, get) => ({
         } catch {
           /* ignore malformed */
         }
+      }
+    }
+    // Migration: names saved before the form-decoding fix may contain "+"
+    // instead of spaces ("Ayman+Chowdhury") — repair them once at hydrate.
+    if (next.auth?.name) {
+      const fixed = next.auth.name.replace(/\+/g, " ").replace(/\s+/g, " ").trim();
+      if (fixed !== next.auth.name) {
+        next.auth = { ...next.auth, name: fixed };
+        persist("auth", next.auth);
       }
     }
     set({
@@ -150,6 +164,10 @@ export const useApp = create<AppState>((set, get) => ({
       reminderHour: next.hour,
       reminderMinute: next.minute,
     });
+  },
+  setAutoReminders: (v) => {
+    persist("autoReminders", v);
+    set({ autoReminders: v });
   },
   setOnline: (v) => set({ online: v }),
   setSyncing: (v) => set({ syncing: v }),

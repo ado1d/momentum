@@ -1,8 +1,10 @@
-// Notes — mirrors the web app's notes-view: search, pinned section,
-// 2-column colorful cards, full editor sheet (title/content/color/pin).
+// Notes — mirrors the web app's notes-view: search, tag filter chips,
+// pinned section, colorful cards with #tag badges, and a READ-MODE view
+// (tapping a note opens the beautiful reader first — "Edit note" stacks
+// the editor on top, exactly like the web app).
 
 import React, { useMemo, useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import * as data from "../db";
@@ -23,22 +25,65 @@ import {
   StackHeader,
   usePalette,
 } from "../components/ui";
+import { MiniMarkdown, extractWikiTitles, markdownToPlain } from "../components/mini-md";
 import { NOTE_COLORS, type Palette } from "../theme";
-import { formatDateShort } from "../utils";
+import { relativeTime } from "../utils";
+
+/** Top gradient strip per note color — mirrors the web NOTE_ACCENT. */
+const NOTE_ACCENTS: Record<string, string[]> = {
+  default: ["#10b981", "#14b8a6", "#10b981"],
+  yellow: ["#fbbf24", "#fb923c"],
+  green: ["#10b981", "#14b8a6"],
+  rose: ["#f43f5e", "#ec4899"],
+  violet: ["#8b5cf6", "#d946ef"],
+  teal: ["#14b8a6", "#10b981"],
+};
 
 export default function NotesScreen() {
   const { palette } = usePalette();
   const version = useApp((s) => s.dataVersion);
   const [search, setSearch] = useState("");
+  const [activeTag, setActiveTag] = useState<string>("all");
   const [editor, setEditor] = useState<{ open: boolean; id: string | null }>({ open: false, id: null });
+  const [reader, setReader] = useState<string | null>(null);
 
   const notes = useMemo(
-    () => data.notesList(search),
+    () => data.notesList(),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [version, search],
+    [version],
   );
-  const pinned = notes.filter((n) => n.pinned);
-  const rest = notes.filter((n) => !n.pinned);
+
+  const tags = useMemo(() => data.noteTags(notes), [notes]);
+
+  const query = search.trim().toLowerCase();
+  const filtered = notes.filter((n) => {
+    if (activeTag !== "all" && n.tag !== activeTag) return false;
+    if (!query) return true;
+    return (
+      n.title.toLowerCase().includes(query) ||
+      n.content.toLowerCase().includes(query) ||
+      (n.tag ?? "").toLowerCase().includes(query)
+    );
+  });
+
+  const pinned = filtered.filter((n) => n.pinned);
+  const rest = filtered.filter((n) => !n.pinned);
+
+  const openReader = (id: string) => setReader(id);
+
+  const openEditor = (id: string | null) => setEditor({ open: true, id });
+
+  const resolveWikiLink = (title: string) => {
+    const needle = title.trim().toLowerCase();
+    const target = notes.find(
+      (n) => (n.title.trim() || "Untitled note").toLowerCase() === needle,
+    );
+    if (target) {
+      openReader(target.id);
+    } else {
+      toast.info(`No note titled "${title}" yet`);
+    }
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: palette.bg }}>
@@ -47,19 +92,68 @@ export default function NotesScreen() {
         <OfflinePill />
         <Input
           value={search}
-          onChangeText={setSearch}
-          placeholder="Search notes…"
+          onChangeText={(t) => {
+            setSearch(t);
+            setActiveTag("all");
+          }}
+          placeholder="Search notes by title, content or tag…"
           returnKeyType="search"
         />
         <View style={{ height: 10 }} />
+
+        {tags.length > 0 ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={{ flexGrow: 0, marginBottom: 4 }}
+            contentContainerStyle={{ paddingRight: 8, paddingBottom: 4 }}
+          >
+            <TagChip
+              label={`All (${notes.length})`}
+              active={activeTag === "all"}
+              onPress={() => setActiveTag("all")}
+            />
+            {tags.map((t) => (
+              <TagChip
+                key={t.tag}
+                label={`# ${t.tag} (${t.count})`}
+                active={activeTag === t.tag}
+                onPress={() => setActiveTag(activeTag === t.tag ? "all" : t.tag)}
+              />
+            ))}
+          </ScrollView>
+        ) : null}
 
         {notes.length === 0 ? (
           <Card>
             <EmptyState
               icon="create-outline"
-              title={search ? "No matches" : "No notes yet"}
-              hint={search ? "Try a different search." : "Capture ideas before they escape."}
-              action={search ? undefined : <Btn label="New note" icon="add" onPress={() => setEditor({ open: true, id: null })} />}
+              title="No notes yet"
+              hint="Capture ideas, snippets and lists before they escape."
+              action={<Btn label="New note" icon="add" onPress={() => openEditor(null)} />}
+            />
+          </Card>
+        ) : filtered.length === 0 ? (
+          <Card>
+            <EmptyState
+              icon="search-outline"
+              title="No matching notes"
+              hint={
+                query
+                  ? `Nothing matches "${search.trim()}". Try a different word or clear the filters.`
+                  : "No notes carry this tag yet."
+              }
+              action={
+                <Btn
+                  label="Clear filters"
+                  variant="outline"
+                  small
+                  onPress={() => {
+                    setSearch("");
+                    setActiveTag("all");
+                  }}
+                />
+              }
             />
           </Card>
         ) : null}
@@ -69,7 +163,7 @@ export default function NotesScreen() {
             <SectionHeading title="Pinned" />
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
               {pinned.map((n) => (
-                <NoteCard key={n.id} note={n} palette={palette} onPress={() => setEditor({ open: true, id: n.id })} />
+                <NoteCard key={n.id} note={n} palette={palette} onPress={() => openReader(n.id)} />
               ))}
             </View>
           </>
@@ -80,16 +174,59 @@ export default function NotesScreen() {
             <SectionHeading title={pinned.length > 0 ? "Others" : "All notes"} />
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
               {rest.map((n) => (
-                <NoteCard key={n.id} note={n} palette={palette} onPress={() => setEditor({ open: true, id: n.id })} />
+                <NoteCard key={n.id} note={n} palette={palette} onPress={() => openReader(n.id)} />
               ))}
             </View>
           </>
         ) : null}
       </ScrollView>
 
-      <Fab onPress={() => setEditor({ open: true, id: null })} icon="create" bottom={40} />
-      <NoteEditorSheet visible={editor.open} noteId={editor.id} onClose={() => setEditor({ open: false, id: null })} />
+      <Fab onPress={() => openEditor(null)} icon="create" bottom={40} />
+
+      {/* Reader renders before the editor so "Edit note" stacks on top. */}
+      <NoteReaderSheet
+        noteId={reader}
+        onClose={() => setReader(null)}
+        onEdit={(id) => openEditor(id)}
+        onOpenNote={openReader}
+        onWikiLink={resolveWikiLink}
+      />
+      <NoteEditorSheet
+        visible={editor.open}
+        noteId={editor.id}
+        existingTags={tags.map((t) => t.tag)}
+        onClose={() => setEditor({ open: false, id: null })}
+      />
     </View>
+  );
+}
+
+/** Web-style tag pill for the filter row. */
+function TagChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+  const { palette } = usePalette();
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        {
+          borderRadius: 999,
+          borderWidth: 1,
+          paddingHorizontal: 13,
+          paddingVertical: 6,
+          marginRight: 8,
+          backgroundColor: active ? palette.primary : palette.card,
+          borderColor: active ? palette.primary : palette.border,
+        },
+        pressed && { opacity: 0.75 },
+      ]}
+    >
+      <Text
+        numberOfLines={1}
+        style={{ fontSize: 12, fontWeight: "700", color: active ? palette.onPrimary : palette.textDim }}
+      >
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -120,25 +257,271 @@ function NoteCard({
       ]}
     >
       <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6 }}>
+        {note.pinned ? (
+          <Ionicons name="pin" size={13} color={palette.warn} style={{ marginRight: 5 }} />
+        ) : null}
         <Text style={{ fontSize: 14, fontWeight: "700", color: palette.text, flex: 1 }} numberOfLines={1}>
-          {note.title}
+          {note.title || "Untitled note"}
         </Text>
-        {note.pinned ? <Ionicons name="pin" size={13} color={palette.warn} /> : null}
       </View>
       <Text style={{ fontSize: 12, color: palette.textDim, lineHeight: 17 }} numberOfLines={5}>
-        {note.content || "Empty note"}
+        {note.content ? markdownToPlain(note.content) : "Empty note"}
       </Text>
-      <Text style={{ fontSize: 10.5, color: palette.textFaint, marginTop: 8 }}>
-        {formatDateShort(new Date(note.updatedAt))}
-      </Text>
+      <View style={{ flexDirection: "row", alignItems: "center", marginTop: 8 }}>
+        {note.tag ? (
+          <View
+            style={{
+              borderRadius: 999,
+              backgroundColor: palette.cardAlt,
+              borderWidth: 1,
+              borderColor: palette.border,
+              paddingHorizontal: 7,
+              paddingVertical: 2,
+              marginRight: 7,
+            }}
+          >
+            <Text style={{ fontSize: 10, fontWeight: "700", color: palette.textDim }}># {note.tag}</Text>
+          </View>
+        ) : null}
+        <Text style={{ fontSize: 10.5, color: palette.textFaint, flex: 1 }} numberOfLines={1}>
+          Edited {relativeTime(note.updatedAt)}
+        </Text>
+      </View>
     </Pressable>
   );
 }
 
-function NoteEditorSheet({ visible, noteId, onClose }: { visible: boolean; noteId: string | null; onClose: () => void }) {
+// ── Read-mode sheet (mirrors the web NoteReaderDialog) ────────
+
+function NoteReaderSheet({
+  noteId,
+  onClose,
+  onEdit,
+  onOpenNote,
+  onWikiLink,
+}: {
+  noteId: string | null;
+  onClose: () => void;
+  onEdit: (id: string) => void;
+  onOpenNote: (id: string) => void;
+  onWikiLink: (title: string) => void;
+}) {
+  const { palette } = usePalette();
+  const version = useApp((s) => s.dataVersion);
+
+  // Keep the last note while the sheet is open so it never flashes empty.
+  const [lastId, setLastId] = React.useState<string | null>(null);
+  if (noteId && noteId !== lastId) setLastId(noteId);
+  const visible = noteId !== null;
+  const shownId = noteId ?? lastId;
+
+  const note = useMemo(
+    () => (shownId ? data.getNote(shownId) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [shownId, version],
+  );
+
+  const notes = useMemo(
+    () => data.notesList(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [version],
+  );
+
+  const backlinks = useMemo(() => {
+    const title = note?.title.trim().toLowerCase();
+    if (!note || !title) return [];
+    return notes.filter(
+      (n) => n.id !== note.id && extractWikiTitles(n.content).includes(title),
+    );
+  }, [notes, note]);
+
+  if (!note) return null;
+
+  const accent = NOTE_ACCENTS[note.color] ?? NOTE_ACCENTS.default;
+  const words = note.content.trim() ? note.content.trim().split(/\s+/).length : 0;
+  const minutes = words > 0 ? Math.max(1, Math.round(words / 200)) : 0;
+  const colors = NOTE_COLORS[note.color] ?? NOTE_COLORS.default;
+
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose} transparent statusBarTranslucent>
+      <View style={{ flex: 1, backgroundColor: "rgba(4,6,12,0.6)", justifyContent: "flex-end" }}>
+        <Pressable style={{ position: "absolute", top: 0, bottom: 0, left: 0, right: 0 }} onPress={onClose} />
+        <View
+          style={{
+            backgroundColor: palette.bg,
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            borderWidth: 1,
+            borderBottomWidth: 0,
+            borderColor: palette.border,
+            maxHeight: "92%",
+          }}
+        >
+          {/* color accent strip */}
+          <View style={{ flexDirection: "row", height: 5 }}>
+            {accent.map((c, i) => (
+              <View key={i} style={{ flex: 1, backgroundColor: c }} />
+            ))}
+          </View>
+
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              paddingHorizontal: 14,
+              paddingTop: 10,
+              paddingBottom: 8,
+            }}
+          >
+            <Text style={{ fontSize: 13, fontWeight: "800", color: palette.textFaint, letterSpacing: 0.5 }}>
+              READING VIEW
+            </Text>
+            <Pressable onPress={onClose} hitSlop={8} style={{ padding: 6, borderRadius: 12 }}>
+              <Ionicons name="close" size={22} color={palette.textDim} />
+            </Pressable>
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20 }}>
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              {note.pinned ? (
+                <Ionicons name="pin" size={15} color={palette.warn} style={{ marginRight: 7 }} />
+              ) : null}
+              <Text
+                style={{
+                  flex: 1,
+                  fontSize: 21,
+                  fontWeight: "800",
+                  color: palette.text,
+                  lineHeight: 28,
+                  letterSpacing: -0.3,
+                }}
+              >
+                {note.title || "Untitled note"}
+              </Text>
+            </View>
+
+            <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
+              {note.tag ? (
+                <View
+                  style={{
+                    borderRadius: 999,
+                    backgroundColor: palette.cardAlt,
+                    borderWidth: 1,
+                    borderColor: palette.border,
+                    paddingHorizontal: 9,
+                    paddingVertical: 3,
+                    marginRight: 8,
+                    marginBottom: 4,
+                  }}
+                >
+                  <Text style={{ fontSize: 10.5, fontWeight: "700", color: palette.textDim }}># {note.tag}</Text>
+                </View>
+              ) : null}
+              <Text style={{ fontSize: 11.5, color: palette.textFaint, marginBottom: 4 }}>
+                Edited {relativeTime(note.updatedAt)}
+                {words > 0 ? `  ·  ${words} ${words === 1 ? "word" : "words"}  ·  ${minutes} min read` : ""}
+              </Text>
+            </View>
+
+            <View style={{ height: 1, backgroundColor: palette.border, marginTop: 14, marginBottom: 4 }} />
+
+            {note.content.trim() ? (
+              <MiniMarkdown content={note.content} palette={palette} onWikiLink={onWikiLink} />
+            ) : (
+              <Text style={{ color: palette.textFaint, fontStyle: "italic", fontSize: 14, marginTop: 16 }}>
+                This note is empty — tap "Edit note" to start writing.
+              </Text>
+            )}
+
+            {backlinks.length > 0 ? (
+              <View
+                style={{
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: palette.border,
+                  backgroundColor: palette.cardAlt,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  marginTop: 18,
+                }}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <Ionicons name="link-outline" size={12} color={palette.textDim} />
+                  <Text style={{ fontSize: 11, fontWeight: "700", color: palette.textDim, marginLeft: 5 }}>
+                    Mentioned in
+                  </Text>
+                </View>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 8 }}>
+                  {backlinks.map((b) => (
+                    <Pressable
+                      key={b.id}
+                      onPress={() => onOpenNote(b.id)}
+                      style={({ pressed }) => [
+                        {
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: palette.border,
+                          backgroundColor: palette.card,
+                          paddingHorizontal: 10,
+                          paddingVertical: 5,
+                          marginRight: 6,
+                          marginBottom: 6,
+                        },
+                        pressed && { opacity: 0.7 },
+                      ]}
+                    >
+                      <Text style={{ fontSize: 12, color: palette.primary, fontWeight: "600" }}>
+                        {b.title || "Untitled note"}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            ) : null}
+          </ScrollView>
+
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              borderTopWidth: 1,
+              borderTopColor: palette.border,
+              paddingHorizontal: 18,
+              paddingVertical: 12,
+              paddingBottom: 20,
+              backgroundColor: palette.card,
+            }}
+          >
+            <Text style={{ fontSize: 11, color: palette.textFaint, flex: 1, marginRight: 10 }} numberOfLines={1}>
+              Created {new Date(note.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+            </Text>
+            <Btn label="Edit note" icon="pencil" small onPress={() => onEdit(note.id)} />
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ── Editor sheet (mirrors the web NoteDialog) ─────────────────
+
+function NoteEditorSheet({
+  visible,
+  noteId,
+  existingTags,
+  onClose,
+}: {
+  visible: boolean;
+  noteId: string | null;
+  existingTags: string[];
+  onClose: () => void;
+}) {
   const { palette } = usePalette();
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  const [tag, setTag] = useState("");
   const [color, setColor] = useState("default");
   const [pinned, setPinned] = useState(false);
   const [loaded, setLoaded] = useState<string | null | undefined>(undefined);
@@ -152,6 +535,7 @@ function NoteEditorSheet({ visible, noteId, onClose }: { visible: boolean; noteI
       if (n) {
         setTitle(n.title);
         setContent(n.content);
+        setTag(n.tag ?? "");
         setColor(n.color);
         setPinned(!!n.pinned);
         return;
@@ -159,6 +543,7 @@ function NoteEditorSheet({ visible, noteId, onClose }: { visible: boolean; noteI
     }
     setTitle("");
     setContent("");
+    setTag("");
     setColor("default");
     setPinned(false);
   }, [visible, noteId, loaded]);
@@ -175,6 +560,7 @@ function NoteEditorSheet({ visible, noteId, onClose }: { visible: boolean; noteI
     data.saveNote(noteId, {
       title: title.trim() || "Untitled note",
       content,
+      tag: tag.trim().toLowerCase() || null,
       color,
       pinned,
     });
@@ -183,6 +569,8 @@ function NoteEditorSheet({ visible, noteId, onClose }: { visible: boolean; noteI
     toast.success(noteId ? "Note updated" : "Note saved");
     onClose();
   };
+
+  const suggestions = existingTags.filter((t) => t !== tag.trim().toLowerCase()).slice(0, 6);
 
   return (
     <Sheet
@@ -207,20 +595,30 @@ function NoteEditorSheet({ visible, noteId, onClose }: { visible: boolean; noteI
               style={{ flex: 1 }}
             />
           ) : null}
-          <Btn label="Save note" icon="checkmark" onPress={save} style={{ flex: 2 }} />
+          <Btn label={noteId ? "Save changes" : "Create note"} icon="checkmark" onPress={save} style={{ flex: 2 }} />
         </View>
       }
     >
-      <Input value={title} onChangeText={setTitle} placeholder="Title" autoFocus={!noteId} onSubmitEditing={save} returnKeyType="done" />
+      <Input value={title} onChangeText={setTitle} placeholder="Give it a name (optional)" autoFocus={!noteId} onSubmitEditing={save} returnKeyType="done" />
 
       <FieldLabel>Content</FieldLabel>
       <Input
         value={content}
         onChangeText={setContent}
-        placeholder="Write freely… (markdown works on the web app)"
+        placeholder={"Write freely…\n**bold** · *italic* · # heading · [[Note title]] links notes"}
         multiline
         style={{ minHeight: 200 }}
       />
+
+      <FieldLabel>Tag</FieldLabel>
+      <Input value={tag} onChangeText={setTag} placeholder="e.g. ideas" returnKeyType="done" onSubmitEditing={save} />
+      {suggestions.length > 0 ? (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 8 }}>
+          {suggestions.map((t) => (
+            <Chip key={t} label={`# ${t}`} small onPress={() => setTag(t)} />
+          ))}
+        </View>
+      ) : null}
 
       <FieldLabel>Color</FieldLabel>
       <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
