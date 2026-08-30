@@ -1,4 +1,6 @@
-// Dashboard — the daily cockpit: progress, habits, today's tasks, quick actions.
+// Dashboard — mirrors the web app's dashboard-view: gradient greeting,
+// quote card, 2×2 stat cards, this-week chart, overdue banner, today's
+// focus, habit chips, active goals and recent journal.
 
 import React, { useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
@@ -9,305 +11,625 @@ import * as data from "../db";
 import { useApp, bumpData } from "../store";
 import { scheduleSync } from "../sync";
 import {
+  Bar,
+  Btn,
   Card,
-  EmptyState,
-  OfflinePill,
+  EmptyNote,
   ProgressRing,
   Screen,
-  ScreenHeader,
-  SectionTitle,
+  SectionHeading,
+  SeeAll,
+  WeekDots,
   usePalette,
 } from "../components/ui";
 import { TaskEditorSheet } from "../components/task-editor";
-import { accentColor, PRIORITY_COLORS, type Palette } from "../theme";
-import {
-  dayKey,
-  formatDateLong,
-  formatTime,
-  greeting,
-  minutesToClock,
-  relativeDay,
-  titleize,
-} from "../utils";
+import { MOODS, PRIORITY_COLORS, quoteForDay, accentColor, type Palette } from "../theme";
+import { dayKey, formatDateLong, formatTime, greeting, minutesToClock, relativeDay } from "../utils";
 
 export default function DashboardScreen() {
   const { palette } = usePalette();
   const navigation = useNavigation<any>();
   const version = useApp((s) => s.dataVersion);
-  const auth = useApp((s) => s.auth);
+  const setQuickAddOpen = useApp((s) => s.setQuickAddOpen);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  const model = useMemo(() => {
-    const today = dayKey();
-    const allActive = data.activeTodos();
-    const todayTasks = allActive.filter((t) => t.dueDate && dayKey(t.dueDate) === today);
-    const overdue = allActive.filter((t) => t.dueDate && dayKey(t.dueDate) < today);
-    const completedToday = data
-      .completedTodos(200)
-      .filter((t) => t.completedAt && dayKey(t.completedAt) === today);
-    const totalToday = todayTasks.length + overdue.length + completedToday.length;
-    const doneToday = completedToday.length;
-    const habits = data.habits();
-    const habitsDone = habits.filter((h) => h.doneToday).length;
-    const focusToday = data.focusSessionsForDay(today).reduce((s, f) => s + f.minutes, 0);
-    const bestStreak = habits.reduce((m, h) => Math.max(m, h.streak), 0);
-    return {
-      todayTasks,
-      overdue,
-      completedToday,
-      totalToday,
-      doneToday,
-      habits,
-      habitsDone,
-      focusToday,
-      bestStreak,
-    };
-  }, [version]);
+  const model = useMemo(
+    () => data.dashboardModel(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [version],
+  );
 
-  const name = auth?.name?.split(" ")[0] ?? "";
+  const quote = quoteForDay(dayKey());
+  const today = dayKey();
 
-  const complete = (id: string) => {
-    data.setTodoCompleted(id, true);
+  const toggleTodo = (id: string, done: boolean) => {
+    data.setTodoCompleted(id, done);
     bumpData();
     scheduleSync();
   };
 
+  const toggleHabit = (id: string) => {
+    data.toggleHabit(id, dayKey());
+    bumpData();
+    scheduleSync();
+  };
+
+  const addStarterHabits = () => {
+    data.saveHabit(null, { name: "Drink 8 glasses of water", emoji: "💧", color: "teal", timeOfDay: "anytime" });
+    data.saveHabit(null, { name: "Read 20 minutes", emoji: "📚", color: "amber", timeOfDay: "evening" });
+    data.saveHabit(null, { name: "Move your body", emoji: "🏃", color: "rose", timeOfDay: "morning" });
+    bumpData();
+    scheduleSync();
+  };
+
+  const isEmpty =
+    model.todosTotal === 0 && model.habitsTotal === 0 && model.activeGoals.length === 0 && model.routineTotal === 0;
+
+  const weekDays = model.habits[0]?.last7Dates ?? [];
+  const avgScore = Math.round(model.week.reduce((s, d) => s + d.score, 0) / Math.max(1, model.week.length));
+
   return (
-    <Screen>
-      <ScreenHeader
-        title="Momentum"
-        subtitle={`${greeting()}${name ? `, ${name}` : ""} · ${formatDateLong()}`}
-        right={
-          <Pressable
-            onPress={() => navigation.navigate("Settings")}
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 14,
-              backgroundColor: palette.primarySoft,
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Ionicons name="settings-outline" size={20} color={palette.primary} />
-          </Pressable>
-        }
-      />
-      <OfflinePill />
-
-      {/* Progress hero */}
-      <Card>
-        <View style={{ flexDirection: "row", alignItems: "center" }}>
-          <ProgressRing
-            size={110}
-            progress={model.totalToday === 0 ? 0 : model.doneToday / model.totalToday}
-            color={palette.primary}
-            trackColor={palette.cardAlt}
-          >
-            <Text style={{ fontSize: 24, fontWeight: "800", color: palette.text }}>
-              {model.totalToday === 0 ? "–" : Math.round((model.doneToday / model.totalToday) * 100)}%
-            </Text>
-            <Text style={{ fontSize: 11, color: palette.textDim }}>today</Text>
-          </ProgressRing>
-          <View style={{ flex: 1, marginLeft: 18 }}>
-            <StatLine icon="checkmark-done-outline" color={palette.primary} text={`${model.doneToday}/${model.totalToday} tasks done`} palette={palette} />
-            <StatLine icon="flame-outline" color="#fb923c" text={`${model.habitsDone}/${model.habits.length} habits · best streak ${model.bestStreak}🔥`} palette={palette} />
-            <StatLine icon="timer-outline" color="#2dd4bf" text={`${minutesToClock(model.focusToday)} focused today`} palette={palette} />
-          </View>
+    <Screen bottomPad={30}>
+      {/* Header: greeting + date + score pill */}
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 18, marginTop: 4 }}>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: palette.primary, fontSize: 22, fontWeight: "800", letterSpacing: -0.4 }}>
+            {greeting()}
+          </Text>
+          <Text style={{ color: palette.textDim, fontSize: 13.5, marginTop: 2 }}>{formatDateLong()}</Text>
         </View>
-      </Card>
-
-      {/* Quick actions */}
-      <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: 4 }}>
-        <QuickAction
-          icon="add-circle-outline"
-          label="New task"
-          palette={palette}
-          onPress={() => {
-            setEditingId(null);
-            setEditorOpen(true);
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 6,
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: palette.primaryDim,
+            backgroundColor: palette.primarySoft,
+            paddingHorizontal: 13,
+            paddingVertical: 7,
           }}
-        />
-        <QuickAction icon="timer-outline" label="Focus" palette={palette} onPress={() => navigation.navigate("Focus")} />
-        <QuickAction icon="book-outline" label="Journal" palette={palette} onPress={() => navigation.navigate("Diary")} />
-        <QuickAction icon="create-outline" label="Note" palette={palette} onPress={() => navigation.navigate("Notes")} />
+        >
+          <Ionicons name="flash" size={14} color={palette.primary} />
+          <Text style={{ color: palette.primary, fontSize: 14.5, fontWeight: "800" }}>{model.score}%</Text>
+        </View>
       </View>
 
-      {/* Habits */}
-      <SectionTitle>Today's habits</SectionTitle>
-      {model.habits.length === 0 ? (
-        <Card>
-          <EmptyState icon="repeat-outline" title="No habits yet" hint="Build streaks in the Routine tab." />
-        </Card>
-      ) : (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 8 }}>
-          {model.habits.map((h) => (
-            <Pressable
-              key={h.id}
-              onPress={() => {
-                data.toggleHabit(h.id, dayKey());
-                bumpData();
-                scheduleSync();
-              }}
+      {isEmpty ? (
+        <>
+          {/* Onboarding card (web OnboardingCard) */}
+          <Card style={{ alignItems: "center", paddingVertical: 26 }}>
+            <View
               style={{
-                width: 96,
-                marginRight: 10,
-                borderRadius: 16,
-                borderWidth: 1,
-                borderColor: h.doneToday ? accentColor(h.color) : palette.border,
-                backgroundColor: palette.card,
+                width: 60,
+                height: 60,
+                borderRadius: 19,
+                backgroundColor: palette.primary,
                 alignItems: "center",
-                paddingVertical: 14,
+                justifyContent: "center",
+                marginBottom: 14,
               }}
             >
-              <Text style={{ fontSize: 26 }}>{h.emoji}</Text>
-              <Text numberOfLines={1} style={{ fontSize: 12, fontWeight: "600", color: palette.text, marginTop: 6, paddingHorizontal: 6 }}>
-                {h.name}
-              </Text>
-              <Text style={{ fontSize: 11, color: h.doneToday ? accentColor(h.color) : palette.textFaint, marginTop: 2 }}>
-                {h.doneToday ? "Done ✓" : `${h.streak}🔥`}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-      )}
-
-      {/* Overdue */}
-      {model.overdue.length > 0 ? (
-        <>
-          <SectionTitle>Overdue</SectionTitle>
-          {model.overdue.slice(0, 5).map((t) => (
-            <TaskRow key={t.id} todo={t} palette={palette} onPress={complete} overdue />
-          ))}
+              <Ionicons name="flash" size={30} color={palette.onPrimary} />
+            </View>
+            <Text style={{ color: palette.text, fontSize: 21, fontWeight: "800", letterSpacing: -0.3 }}>
+              Welcome to Momentum 👋
+            </Text>
+            <Text
+              style={{
+                color: palette.textDim,
+                fontSize: 13.5,
+                lineHeight: 20,
+                textAlign: "center",
+                marginTop: 8,
+                maxWidth: 300,
+              }}
+            >
+              Track tasks, build habits, and grow toward your goals — one small win at a time.
+            </Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", marginTop: 18, gap: 8 }}>
+              <Btn label="Add your first task" icon="add" onPress={() => setQuickAddOpen(true)} />
+              <Btn label="Add starter habits" variant="outline" icon="repeat-outline" onPress={addStarterHabits} />
+            </View>
+            <Btn
+              label="Set a goal"
+              variant="ghost"
+              icon="flag-outline"
+              small
+              onPress={() => navigation.navigate("Main", { screen: "Goals" })}
+              style={{ marginTop: 4 }}
+            />
+          </Card>
+          <QuoteCard palette={palette} text={quote.text} author={quote.author} />
         </>
-      ) : null}
-
-      {/* Today */}
-      <SectionTitle>Today</SectionTitle>
-      {model.todayTasks.length === 0 && model.overdue.length === 0 ? (
-        <Card>
-          <EmptyState icon="sunny-outline" title="Nothing due today" hint="Add a task or enjoy the calm." />
-        </Card>
       ) : (
-        model.todayTasks.map((t) => <TaskRow key={t.id} todo={t} palette={palette} onPress={complete} />)
+        <>
+          <QuoteCard palette={palette} text={quote.text} author={quote.author} />
+
+          {/* Stat cards 2×2 */}
+          <View style={{ flexDirection: "row", gap: 12, marginBottom: 12 }}>
+            <Card style={{ flex: 1, alignItems: "center", paddingVertical: 18 }}>
+              <ProgressRing
+                size={88}
+                progress={model.score / 100}
+                thickness={8}
+                color={palette.primary}
+                trackColor={palette.cardAlt}
+              >
+                <Text style={{ color: palette.primary, fontSize: 22, fontWeight: "800" }}>{model.score}</Text>
+                <Text style={{ color: palette.textDim, fontSize: 10.5, marginTop: -2 }}>Score</Text>
+              </ProgressRing>
+            </Card>
+            <View style={{ flex: 1, gap: 12 }}>
+              <StatMini
+                palette={palette}
+                label="Tasks today"
+                icon="list-outline"
+                iconColor="#34d399"
+                value={`${model.todosDone}`}
+                total={`/${model.todosTotal}`}
+                pct={model.todosTotal > 0 ? model.todosDone / model.todosTotal : 0}
+                barColor="#34d399"
+              />
+              <StatMini
+                palette={palette}
+                label="Habits"
+                icon="repeat-outline"
+                iconColor="#2dd4bf"
+                value={`${model.habitsDone}`}
+                total={`/${model.habitsTotal}`}
+                pct={model.habitsTotal > 0 ? model.habitsDone / model.habitsTotal : 0}
+                barColor="#2dd4bf"
+              />
+            </View>
+          </View>
+          <Card style={{ marginBottom: 12 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+                <Text style={{ color: palette.text, fontSize: 14, fontWeight: "700" }}>This week</Text>
+              </View>
+              <Text style={{ color: palette.textDim, fontSize: 11.5 }}>avg {avgScore}% · Last 7 days</Text>
+            </View>
+            {/* Bar chart */}
+            <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 6, height: 92, marginTop: 14 }}>
+              {model.week.map((d) => {
+                const isToday = d.key === today;
+                const h = Math.max(4, d.score);
+                return (
+                  <View key={d.key} style={{ flex: 1, height: "100%", justifyContent: "flex-end", alignItems: "center" }}>
+                    {isToday ? (
+                      <View
+                        style={{
+                          borderRadius: 999,
+                          backgroundColor: palette.primary,
+                          paddingHorizontal: 7,
+                          paddingVertical: 2,
+                          marginBottom: 5,
+                        }}
+                      >
+                        <Text style={{ color: palette.onPrimary, fontSize: 9, fontWeight: "800" }}>{d.score}</Text>
+                      </View>
+                    ) : null}
+                    <View
+                      style={{
+                        width: "100%",
+                        borderRadius: 6,
+                        height: `${h}%`,
+                        backgroundColor: isToday ? palette.primary : d.score > 0 ? palette.primaryDim : palette.cardAlt,
+                      }}
+                    />
+                  </View>
+                );
+              })}
+            </View>
+            <View style={{ flexDirection: "row", gap: 6, marginTop: 8 }}>
+              {model.week.map((d) => {
+                const dt = new Date(`${d.key}T12:00:00`);
+                const letter = ["S", "M", "T", "W", "T", "F", "S"][dt.getDay()];
+                return (
+                  <Text
+                    key={d.key}
+                    style={{
+                      flex: 1,
+                      textAlign: "center",
+                      fontSize: 10,
+                      fontWeight: "700",
+                      color: d.key === today ? palette.primary : palette.textFaint,
+                    }}
+                  >
+                    {letter}
+                  </Text>
+                );
+              })}
+            </View>
+          </Card>
+
+          {/* Overdue banner */}
+          {model.overdueCount > 0 ? (
+            <Pressable
+              onPress={() => navigation.navigate("Main", { screen: "Tasks" })}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 10,
+                borderRadius: 18,
+                borderWidth: 1,
+                borderColor: palette.dangerSoft,
+                backgroundColor: palette.dangerSoft,
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+                marginBottom: 12,
+              }}
+            >
+              <Ionicons name="warning" size={19} color={palette.danger} />
+              <Text style={{ color: palette.danger, fontSize: 13.5, fontWeight: "700", flex: 1 }}>
+                You have {model.overdueCount} overdue task{model.overdueCount === 1 ? "" : "s"}
+              </Text>
+              <Ionicons name="chevron-forward" size={15} color={palette.danger} />
+            </Pressable>
+          ) : null}
+
+          {/* Today's focus */}
+          <SectionHeading title="Today's focus" action={<SeeAll onPress={() => navigation.navigate("Main", { screen: "Tasks" })} />} />
+          {model.upcoming.length === 0 ? (
+            <EmptyNote text="Nothing due in the next week — enjoy the breathing room." />
+          ) : (
+            <Card style={{ paddingVertical: 4, paddingHorizontal: 0 }}>
+              {model.upcoming.slice(0, 6).map((t) => (
+                <FocusRow
+                  key={t.id}
+                  todo={t}
+                  palette={palette}
+                  onToggle={() => toggleTodo(t.id, !t.completed)}
+                  onOpen={() => {
+                    setEditingId(t.id);
+                    setEditorOpen(true);
+                  }}
+                  isLast={model.upcoming.slice(0, 6).indexOf(t) === Math.min(5, model.upcoming.length - 1)}
+                />
+              ))}
+            </Card>
+          )}
+
+          {/* Habits today */}
+          <SectionHeading title="Habits today" action={<SeeAll onPress={() => navigation.navigate("Main", { screen: "Routine" })} />} />
+          {model.habits.length === 0 ? (
+            <EmptyNote text="No habits yet — build momentum with one small daily win." />
+          ) : (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingRight: 8, paddingBottom: 4 }}
+              style={{ marginHorizontal: -16, paddingHorizontal: 16 }}
+            >
+              {model.habits.map((h) => (
+                <Pressable
+                  key={h.id}
+                  onPress={() => toggleHabit(h.id)}
+                  style={{
+                    width: 138,
+                    marginRight: 10,
+                    borderRadius: 18,
+                    borderWidth: 1,
+                    borderColor: h.doneToday ? accentColor(h.color) : palette.border,
+                    backgroundColor: h.doneToday ? `${accentColor(h.color)}18` : palette.card,
+                    padding: 12,
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                    <Text style={{ fontSize: 20 }}>{h.emoji}</Text>
+                    <View
+                      style={{
+                        width: 21,
+                        height: 21,
+                        borderRadius: 999,
+                        borderWidth: 2,
+                        borderColor: h.doneToday ? palette.primary : palette.border,
+                        backgroundColor: h.doneToday ? palette.primary : "transparent",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      {h.doneToday ? <Ionicons name="checkmark" size={12} color={palette.onPrimary} strokeWidth={3} /> : null}
+                    </View>
+                  </View>
+                  <Text style={{ color: palette.text, fontSize: 12.5, fontWeight: "600", marginTop: 8, minHeight: 32, lineHeight: 16 }}>
+                    {h.name}
+                  </Text>
+                  <View style={{ marginTop: 8 }}>
+                    <WeekDots days={weekDays} doneSet={new Set(h.last7DoneSet)} size={7} />
+                  </View>
+                </Pressable>
+              ))}
+            </ScrollView>
+          )}
+
+          {/* Active goals */}
+          <SectionHeading title="Active goals" action={<SeeAll onPress={() => navigation.navigate("Main", { screen: "Goals" })} />} />
+          {model.activeGoals.length === 0 ? (
+            <EmptyNote text="No active goals — set one to give your days direction." />
+          ) : (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, marginBottom: 2 }}>
+              {model.activeGoals.slice(0, 4).map((g) => {
+                const pct = g.target > 0 ? Math.round((g.progress / g.target) * 100) : 0;
+                return (
+                  <Pressable
+                    key={g.id}
+                    onPress={() => navigation.navigate("Main", { screen: "Goals" })}
+                    style={{
+                      width: "48.2%",
+                      borderRadius: 18,
+                      borderWidth: 1,
+                      borderColor: palette.border,
+                      backgroundColor: palette.card,
+                      padding: 14,
+                    }}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 6 }}>
+                      <Text style={{ color: palette.text, fontSize: 13.5, fontWeight: "700", flex: 1 }} numberOfLines={1}>
+                        {g.title}
+                      </Text>
+                      <View
+                        style={{
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: palette.border,
+                          paddingHorizontal: 8,
+                          paddingVertical: 2,
+                        }}
+                      >
+                        <Text style={{ color: palette.textDim, fontSize: 9.5, fontWeight: "600", textTransform: "capitalize" }}>
+                          {g.period}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={{ marginTop: 12 }}>
+                      <Bar value={g.progress} max={g.target} color={palette.primary} height={7} />
+                    </View>
+                    <Text style={{ color: palette.textDim, fontSize: 11.5, marginTop: 6 }}>
+                      <Text style={{ color: palette.text, fontWeight: "700" }}>{g.progress}</Text>/{g.target}
+                      {g.unit ? ` ${g.unit}` : ""} · {pct}%
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+
+          {/* Recent journal */}
+          <SectionHeading title="Recent journal" action={<SeeAll label="Open diary" onPress={() => navigation.navigate("Diary")} />} />
+          {model.recentJournal.length === 0 ? (
+            <EmptyNote text="No entries yet — tonight is a good night to write." />
+          ) : (
+            <Card style={{ paddingVertical: 4, paddingHorizontal: 0 }}>
+              {model.recentJournal.map((entry, i) => {
+                const mood = MOODS.find((m) => m.key === entry.mood);
+                return (
+                  <Pressable
+                    key={entry.id}
+                    onPress={() => navigation.navigate("Diary")}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "flex-start",
+                      paddingHorizontal: 14,
+                      paddingVertical: 12,
+                      borderTopWidth: i === 0 ? 0 : 1,
+                      borderTopColor: palette.border,
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 12,
+                        backgroundColor: palette.cardAlt,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Text style={{ fontSize: 17 }}>{mood ? mood.emoji : "📖"}</Text>
+                    </View>
+                    <View style={{ flex: 1, marginLeft: 11 }}>
+                      <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
+                        <Text style={{ color: palette.text, fontSize: 13.5, fontWeight: "700" }} numberOfLines={1}>
+                          {entry.title || "Journal entry"}
+                        </Text>
+                        <Text style={{ color: palette.textFaint, fontSize: 11 }}>{relativeDay(entry.date)}</Text>
+                      </View>
+                      <Text style={{ color: palette.textDim, fontSize: 12, lineHeight: 17, marginTop: 2 }} numberOfLines={2}>
+                        {entry.content || "—"}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </Card>
+          )}
+
+          {/* Focus minutes footer stat */}
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, marginTop: 18 }}>
+            <Ionicons name="timer-outline" size={14} color={palette.primary} />
+            <Text style={{ color: palette.textDim, fontSize: 12.5, fontWeight: "600" }}>
+              {minutesToClock(model.focusMinutesToday)} focused today
+            </Text>
+            <Text style={{ color: palette.textFaint }}>·</Text>
+            <Pressable onPress={() => navigation.navigate("Focus")}>
+              <Text style={{ color: palette.primary, fontSize: 12.5, fontWeight: "700" }}>Start a session</Text>
+            </Pressable>
+          </View>
+        </>
       )}
 
-      {model.completedToday.length > 0 ? (
-        <>
-          <SectionTitle>Completed today</SectionTitle>
-          {model.completedToday.slice(0, 8).map((t) => (
-            <TaskRow key={t.id} todo={t} palette={palette} onPress={() => undefined} done />
-          ))}
-        </>
-      ) : null}
-
-      <TaskEditorSheet visible={editorOpen} todoId={editingId} presetDueToday onClose={() => setEditorOpen(false)} />
+      <TaskEditorSheet visible={editorOpen} todoId={editingId} onClose={() => setEditorOpen(false)} />
     </Screen>
   );
 }
 
-function StatLine({ icon, color, text, palette }: { icon: keyof typeof Ionicons.glyphMap; color: string; text: string; palette: Palette }) {
+function QuoteCard({ palette, text, author }: { palette: Palette; text: string; author: string }) {
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 10 }}>
-      <Ionicons name={icon} size={16} color={color} style={{ marginRight: 8 }} />
-      <Text style={{ color: palette.textDim, fontSize: 13, fontWeight: "600" }}>{text}</Text>
-    </View>
+    <Card style={{ marginBottom: 12 }}>
+      <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+        <View
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 13,
+            backgroundColor: palette.primarySoft,
+            alignItems: "center",
+            justifyContent: "center",
+            marginRight: 12,
+          }}
+        >
+          <Ionicons name="sparkles" size={19} color={palette.primary} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: palette.text, fontSize: 13.5, fontWeight: "500", lineHeight: 20 }}>
+            “{text}”
+          </Text>
+          <Text style={{ color: palette.textDim, fontSize: 12, fontWeight: "600", marginTop: 6 }}>— {author}</Text>
+        </View>
+      </View>
+    </Card>
   );
 }
 
-function QuickAction({ icon, label, palette, onPress }: { icon: keyof typeof Ionicons.glyphMap; label: string; palette: Palette; onPress: () => void }) {
+function StatMini({
+  palette,
+  label,
+  icon,
+  iconColor,
+  value,
+  total,
+  pct,
+  barColor,
+}: {
+  palette: Palette;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  iconColor: string;
+  value: string;
+  total: string;
+  pct: number;
+  barColor: string;
+}) {
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        {
-          flexDirection: "row",
-          alignItems: "center",
-          backgroundColor: palette.card,
-          borderColor: palette.border,
-          borderWidth: 1,
-          borderRadius: 12,
-          paddingHorizontal: 12,
-          paddingVertical: 9,
-          marginRight: 8,
-          marginBottom: 8,
-        },
-        pressed && { opacity: 0.7 },
-      ]}
-    >
-      <Ionicons name={icon} size={15} color={palette.primary} style={{ marginRight: 6 }} />
-      <Text style={{ color: palette.text, fontSize: 13, fontWeight: "600" }}>{label}</Text>
-    </Pressable>
+    <Card style={{ marginBottom: 0, paddingVertical: 13 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <Text
+          style={{
+            color: palette.textDim,
+            fontSize: 10.5,
+            fontWeight: "700",
+            letterSpacing: 0.6,
+            textTransform: "uppercase",
+          }}
+        >
+          {label}
+        </Text>
+        <Ionicons name={icon} size={15} color={iconColor} />
+      </View>
+      <Text style={{ color: palette.text, fontSize: 22, fontWeight: "800", marginTop: 6 }}>
+        {value}
+        <Text style={{ color: palette.textFaint, fontSize: 14, fontWeight: "700" }}>{total}</Text>
+      </Text>
+      <View style={{ marginTop: 8 }}>
+        <Bar value={pct * 100} max={100} color={barColor} height={6} />
+      </View>
+    </Card>
   );
 }
 
-function TaskRow({
+function FocusRow({
   todo,
   palette,
-  onPress,
-  done,
-  overdue,
+  onToggle,
+  onOpen,
+  isLast,
 }: {
   todo: data.Todo;
   palette: Palette;
-  onPress: (id: string) => void;
-  done?: boolean;
-  overdue?: boolean;
+  onToggle: () => void;
+  onOpen: () => void;
+  isLast: boolean;
 }) {
+  const done = !!todo.completed;
   const due = todo.dueDate ? new Date(todo.dueDate) : null;
   const showTime = due ? due.getHours() + due.getMinutes() > 0 : false;
+  const overdue = !done && todo.dueDate ? dayKey(todo.dueDate) < dayKey() : false;
+  const subs = data.subtasksOf(todo.id);
+  const subsDone = subs.filter((s) => s.completed).length;
   return (
-    <Pressable
-      onPress={() => onPress(todo.id)}
+    <View
       style={{
         flexDirection: "row",
         alignItems: "center",
-        backgroundColor: palette.card,
-        borderColor: palette.border,
-        borderWidth: 1,
-        borderRadius: 14,
         paddingHorizontal: 14,
-        paddingVertical: 12,
-        marginBottom: 8,
+        paddingVertical: 11,
+        borderTopWidth: 0,
+        borderBottomWidth: isLast ? 0 : 1,
+        borderBottomColor: palette.border,
       }}
     >
+      <Pressable onPress={onToggle} hitSlop={7} style={{ padding: 2 }}>
+        <View
+          style={{
+            width: 23,
+            height: 23,
+            borderRadius: 999,
+            borderWidth: 2,
+            borderColor: done ? palette.primary : palette.border,
+            backgroundColor: done ? palette.primary : "transparent",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {done ? <Ionicons name="checkmark" size={14} color={palette.onPrimary} /> : null}
+        </View>
+      </Pressable>
       <View
         style={{
-          width: 24,
-          height: 24,
-          borderRadius: 8,
-          borderWidth: 2,
-          borderColor: done ? palette.primary : PRIORITY_COLORS[todo.priority] ?? palette.textFaint,
-          backgroundColor: done ? palette.primary : "transparent",
-          alignItems: "center",
-          justifyContent: "center",
-          marginRight: 12,
+          width: 8,
+          height: 8,
+          borderRadius: 999,
+          backgroundColor: PRIORITY_COLORS[todo.priority] ?? PRIORITY_COLORS.low,
+          marginLeft: 10,
         }}
-      >
-        {done ? <Ionicons name="checkmark" size={16} color={palette.onPrimary} /> : null}
-      </View>
-      <View style={{ flex: 1 }}>
+      />
+      <Pressable onPress={onOpen} style={{ flex: 1, marginLeft: 9 }}>
         <Text
           numberOfLines={1}
           style={{
-            fontSize: 15,
-            fontWeight: "600",
             color: done ? palette.textFaint : palette.text,
+            fontSize: 14,
+            fontWeight: "600",
             textDecorationLine: done ? "line-through" : "none",
           }}
         >
           {todo.title}
         </Text>
-        <Text style={{ fontSize: 12, color: overdue ? palette.danger : palette.textFaint, marginTop: 1 }}>
-          {overdue
-            ? `Overdue · ${relativeDay(dayKey(todo.dueDate ?? ""))}${showTime ? ` ${formatTime(todo.dueDate)}` : ""}`
-            : showTime
-              ? formatTime(todo.dueDate)
-              : titleize(todo.category)}
-        </Text>
-      </View>
-      <View style={{ width: 8, height: 8, borderRadius: 99, backgroundColor: PRIORITY_COLORS[todo.priority], marginLeft: 8 }} />
-    </Pressable>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 1 }}>
+          {subs.length > 0 ? (
+            <Text style={{ color: palette.textDim, fontSize: 11, fontWeight: "600" }}>
+              ☑ {subsDone}/{subs.length}
+            </Text>
+          ) : null}
+          {todo.dueDate ? (
+            <Text
+              style={{
+                color: overdue ? palette.danger : palette.textDim,
+                fontSize: 11.5,
+                fontWeight: "500",
+              }}
+            >
+              {relativeDay(dayKey(todo.dueDate))}
+              {showTime ? ` · ${formatTime(todo.dueDate)}` : ""}
+            </Text>
+          ) : null}
+          {todo.repeat !== "none" ? <Ionicons name="repeat" size={11} color={palette.textDim} /> : null}
+        </View>
+      </Pressable>
+    </View>
   );
 }

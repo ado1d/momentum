@@ -11,15 +11,15 @@ import { db, exportJSON, importJSON } from "../db";
 import { useApp, bumpData, DEFAULT_SERVER_URL } from "../store";
 import { signInWithGoogle, signOut } from "../auth";
 import { syncNow } from "../sync";
+import { toast } from "../toast";
 import {
   Btn,
   Card,
   Chip,
   Input,
   OfflinePill,
-  Screen,
-  ScreenHeader,
-  SectionTitle,
+  SectionHeading,
+  StackHeader,
   Toggle,
   usePalette,
 } from "../components/ui";
@@ -91,12 +91,13 @@ export default function SettingsScreen() {
   reminderDate.setHours(app.reminderHour, app.reminderMinute, 0, 0);
 
   return (
-    <Screen>
-      <ScreenHeader title="Settings" subtitle="Account, data and preferences" />
+    <View style={{ flex: 1, backgroundColor: palette.bg }}>
+      <StackHeader title="Settings" subtitle="Make Momentum yours" />
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40 }}>
       <OfflinePill />
 
       {/* Account */}
-      <SectionTitle>Account</SectionTitle>
+      <SectionHeading title="Account" />
       <Card>
         {app.auth ? (
           <>
@@ -156,7 +157,7 @@ export default function SettingsScreen() {
       </Card>
 
       {/* Appearance */}
-      <SectionTitle>Appearance</SectionTitle>
+      <SectionHeading title="Appearance" />
       <Card>
         <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
           {(["system", "light", "dark"] as ThemeMode[]).map((m) => (
@@ -171,7 +172,7 @@ export default function SettingsScreen() {
       </Card>
 
       {/* Notifications */}
-      <SectionTitle>Daily reminder</SectionTitle>
+      <SectionHeading title="Daily reminder" />
       <Card>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
           <View style={{ flex: 1, paddingRight: 12 }}>
@@ -228,7 +229,7 @@ export default function SettingsScreen() {
       </Card>
 
       {/* Data */}
-      <SectionTitle>Your data</SectionTitle>
+      <SectionHeading title="Your data" />
       <Card>
         <Text style={{ fontSize: 12.5, color: palette.textDim, lineHeight: 18, marginBottom: 12 }}>
           Your data lives in this device's local database — it works with zero network. Export a JSON
@@ -236,12 +237,12 @@ export default function SettingsScreen() {
         </Text>
         <View style={{ flexDirection: "row", gap: 10 }}>
           <Btn label="Export backup" variant="ghost" small icon="download-outline" onPress={doExport} style={{ flex: 1 }} />
-          <Btn label="Import" variant="ghost" small icon="upload-outline" onPress={doImport} style={{ flex: 1 }} />
+          <Btn label="Import" variant="ghost" small icon="cloud-upload-outline" onPress={doImport} style={{ flex: 1 }} />
         </View>
       </Card>
 
       {/* Server (advanced) */}
-      <SectionTitle>Server</SectionTitle>
+      <SectionHeading title="Server" />
       <Card>
         <Text style={{ fontSize: 12.5, color: palette.textDim, marginBottom: 10 }}>
           The backend used for Google sign-in and sync. Point it at your own deployment if you forked
@@ -251,8 +252,7 @@ export default function SettingsScreen() {
           value={serverDraft ?? app.serverUrl}
           onChangeText={setServerDraft}
           placeholder={DEFAULT_SERVER_URL}
-          autoCapitalize="none"
-          keyboardType="url"
+          keyboardType="default"
           darkBg
         />
         {serverDraft !== null && serverDraft !== app.serverUrl ? (
@@ -272,9 +272,10 @@ export default function SettingsScreen() {
       </Card>
 
       <Text style={{ textAlign: "center", color: palette.textFaint, fontSize: 12, marginTop: 20, marginBottom: 8 }}>
-        Momentum v1.0.0 · offline-first · your data, your device
+        Momentum v1.1.0 · offline-first · your data, your device
       </Text>
-    </Screen>
+      </ScrollView>
+    </View>
   );
 }
 

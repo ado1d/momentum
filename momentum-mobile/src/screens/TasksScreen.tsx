@@ -1,4 +1,6 @@
-// Tasks — full todo list with filters, completion toggling and the editor.
+// Tasks — mirrors the web app's tasks-view: All/Today/Upcoming/Completed
+// tabs, grouped task rows (checkbox · priority dot · title · checklist ·
+// due label), full editor sheet, "N done today · N overdue" subtitle.
 
 import React, { useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
@@ -7,13 +9,13 @@ import { Ionicons } from "@expo/vector-icons";
 import * as data from "../db";
 import { useApp, bumpData } from "../store";
 import { scheduleSync } from "../sync";
+import { toast } from "../toast";
 import {
-  Card,
   EmptyState,
   Fab,
   OfflinePill,
   Screen,
-  ScreenHeader,
+  SectionHeading,
   Segmented,
   usePalette,
 } from "../components/ui";
@@ -21,16 +23,16 @@ import { TaskEditorSheet } from "../components/task-editor";
 import { PRIORITY_COLORS, type Palette } from "../theme";
 import { dayKey, formatTime, relativeDay, titleize } from "../utils";
 
-type Filter = "today" | "upcoming" | "all" | "done";
+type Filter = "all" | "today" | "upcoming" | "completed";
 
 export default function TasksScreen() {
   const { palette } = usePalette();
   const version = useApp((s) => s.dataVersion);
-  const [filter, setFilter] = useState<Filter>("today");
+  const [filter, setFilter] = useState<Filter>("all");
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  const groups = useMemo(() => {
+  const buckets = useMemo(() => {
     const today = dayKey();
     const active = data.activeTodos();
     const done = data.completedTodos(300);
@@ -40,59 +42,103 @@ export default function TasksScreen() {
       upcoming: active.filter((t) => !t.dueDate || dayKey(t.dueDate) > today),
       all: active,
       done,
+      doneToday: done.filter((t) => t.completedAt && dayKey(t.completedAt) === today),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version]);
 
-  const rows =
-    filter === "today"
-      ? [...groups.overdue, ...groups.today]
-      : filter === "upcoming"
-        ? groups.upcoming
-        : filter === "all"
-          ? groups.all
-          : groups.done;
+  const toggle = (id: string, done: boolean) => {
+    data.setTodoCompleted(id, done);
+    bumpData();
+    scheduleSync();
+    if (done) toast.success("Task completed 🎉");
+  };
 
-  const overdueIds = new Set(groups.overdue.map((t) => t.id));
+  const rows =
+    filter === "all"
+      ? buckets.all
+      : filter === "today"
+        ? [...buckets.overdue, ...buckets.today]
+        : filter === "upcoming"
+          ? buckets.upcoming
+          : buckets.done;
 
   return (
     <View style={{ flex: 1, backgroundColor: palette.bg }}>
-      <ScreenHeader title="Tasks" subtitle={`${groups.all.length} active · ${groups.done.length} done`} />
-      <OfflinePill />
-      <View style={{ paddingHorizontal: 16 }}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }}>
+        <View style={{ paddingTop: 8, paddingBottom: 14 }}>
+          <Text style={{ color: palette.text, fontSize: 23, fontWeight: "800", letterSpacing: -0.4 }}>Tasks</Text>
+          <Text style={{ color: palette.textDim, fontSize: 13.5, marginTop: 3 }}>
+            {buckets.doneToday.length} done today · {buckets.overdue.length} overdue
+          </Text>
+        </View>
+        <OfflinePill />
+
         <Segmented
           value={filter}
           onChange={(k) => setFilter(k as Filter)}
           options={[
+            { key: "all", label: "All" },
             { key: "today", label: "Today" },
             { key: "upcoming", label: "Upcoming" },
-            { key: "all", label: "All" },
-            { key: "done", label: "Done" },
+            { key: "completed", label: "Done" },
           ]}
         />
-      </View>
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 110 }}>
+        <View style={{ marginTop: 8 }} />
+
+        {filter === "today" && buckets.overdue.length > 0 ? (
+          <>
+            <SectionHeading title={`Overdue · ${buckets.overdue.length}`} />
+            {buckets.overdue.map((t) => (
+              <TaskRow
+                key={t.id}
+                todo={t}
+                palette={palette}
+                overdue
+                onToggle={() => toggle(t.id, !t.completed)}
+                onOpen={() => {
+                  setEditingId(t.id);
+                  setEditorOpen(true);
+                }}
+              />
+            ))}
+            {buckets.today.length > 0 ? <SectionHeading title="Today" /> : null}
+          </>
+        ) : null}
+
         {rows.length === 0 ? (
-          <Card style={{ marginTop: 8 }}>
+          <View
+            style={{
+              borderRadius: 18,
+              borderWidth: 1,
+              borderColor: palette.border,
+              backgroundColor: palette.card,
+              marginTop: 8,
+            }}
+          >
             <EmptyState
-              icon={filter === "done" ? "checkmark-done-outline" : "checkbox-outline"}
-              title={filter === "done" ? "Nothing completed yet" : filter === "today" ? "Nothing due today" : "No tasks here"}
+              icon={filter === "completed" ? "checkmark-done-outline" : "checkbox-outline"}
+              title={
+                filter === "completed"
+                  ? "Nothing completed yet"
+                  : filter === "today"
+                    ? "Nothing due today"
+                    : filter === "upcoming"
+                      ? "Nothing upcoming"
+                      : "No tasks yet"
+              }
               hint="Tap + to capture something."
             />
-          </Card>
+          </View>
         ) : (
           rows.map((t) => (
             <TaskRow
               key={t.id}
               todo={t}
               palette={palette}
-              overdue={overdueIds.has(t.id)}
-              onToggle={() => {
-                data.setTodoCompleted(t.id, !t.completed);
-                bumpData();
-                scheduleSync();
-              }}
+              overdue={filter === "today" ? false : !t.completed && !!t.dueDate && dayKey(t.dueDate) < dayKey()}
+              onToggle={() => toggle(t.id, !t.completed)}
               onOpen={() => {
                 setEditingId(t.id);
                 setEditorOpen(true);
@@ -129,47 +175,56 @@ function TaskRow({
   const done = !!todo.completed;
   const due = todo.dueDate ? new Date(todo.dueDate) : null;
   const showTime = due ? due.getHours() + due.getMinutes() > 0 : false;
-  const dueLabel = todo.dueDate
-    ? `${relativeDay(dayKey(todo.dueDate))}${showTime ? ` · ${formatTime(todo.dueDate)}` : ""}`
-    : "No date";
-  const subCount = data.subtasksOf(todo.id).length;
+  const subs = data.subtasksOf(todo.id);
+  const subsDone = subs.filter((s) => s.completed).length;
   return (
     <Pressable
       onPress={onOpen}
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        backgroundColor: palette.card,
-        borderColor: palette.border,
-        borderWidth: 1,
-        borderRadius: 14,
-        paddingHorizontal: 14,
-        paddingVertical: 12,
-        marginBottom: 8,
-      }}
-    >
-      <Pressable
-        onPress={onToggle}
-        hitSlop={6}
-        style={{
-          width: 26,
-          height: 26,
-          borderRadius: 9,
-          borderWidth: 2,
-          borderColor: done ? palette.primary : (PRIORITY_COLORS[todo.priority] ?? palette.textFaint),
-          backgroundColor: done ? palette.primary : "transparent",
+      style={({ pressed }) => [
+        {
+          flexDirection: "row",
           alignItems: "center",
-          justifyContent: "center",
-          marginRight: 12,
-        }}
-      >
-        {done ? <Ionicons name="checkmark" size={17} color={palette.onPrimary} /> : null}
+          backgroundColor: palette.card,
+          borderColor: palette.border,
+          borderWidth: 1,
+          borderRadius: 16,
+          paddingHorizontal: 13,
+          paddingVertical: 12,
+          marginBottom: 8,
+        },
+        pressed && { opacity: 0.82 },
+      ]}
+    >
+      <Pressable onPress={onToggle} hitSlop={8} style={{ padding: 2 }}>
+        <View
+          style={{
+            width: 24,
+            height: 24,
+            borderRadius: 999,
+            borderWidth: 2,
+            borderColor: done ? palette.primary : palette.border,
+            backgroundColor: done ? palette.primary : "transparent",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {done ? <Ionicons name="checkmark" size={15} color={palette.onPrimary} /> : null}
+        </View>
       </Pressable>
-      <View style={{ flex: 1 }}>
+      <View
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: 999,
+          backgroundColor: done ? palette.textFaint : PRIORITY_COLORS[todo.priority] ?? palette.textFaint,
+          marginLeft: 10,
+        }}
+      />
+      <View style={{ flex: 1, marginLeft: 9 }}>
         <Text
           numberOfLines={1}
           style={{
-            fontSize: 15,
+            fontSize: 14.5,
             fontWeight: "600",
             color: done ? palette.textFaint : palette.text,
             textDecorationLine: done ? "line-through" : "none",
@@ -177,29 +232,40 @@ function TaskRow({
         >
           {todo.title}
         </Text>
-        <View style={{ flexDirection: "row", alignItems: "center", marginTop: 2 }}>
-          <Text
-            numberOfLines={1}
-            style={{ fontSize: 12, color: overdue && !done ? palette.danger : palette.textFaint, flexShrink: 1 }}
-          >
-            {overdue && !done ? `⚠︎ ${dueLabel}` : dueLabel}
-          </Text>
-          {todo.repeat !== "none" ? (
-            <Ionicons name="repeat" size={11} color={palette.textFaint} style={{ marginLeft: 6 }} />
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 }}>
+          {todo.dueDate ? (
+            <Text
+              style={{
+                fontSize: 11.5,
+                fontWeight: "500",
+                color: overdue && !done ? palette.danger : palette.textDim,
+              }}
+            >
+              {relativeDay(dayKey(todo.dueDate))}
+              {showTime ? ` · ${formatTime(todo.dueDate)}` : ""}
+            </Text>
+          ) : (
+            <Text style={{ fontSize: 11.5, color: palette.textFaint }}>No date</Text>
+          )}
+          {subs.length > 0 ? (
+            <Text style={{ fontSize: 11, fontWeight: "600", color: palette.textDim }}>
+              ☑ {subsDone}/{subs.length}
+            </Text>
           ) : null}
-          {subCount > 0 ? (
-            <Text style={{ fontSize: 11, color: palette.textFaint, marginLeft: 6 }}>• {subCount} items</Text>
-          ) : null}
+          {todo.repeat !== "none" ? <Ionicons name="repeat" size={11} color={palette.textDim} /> : null}
+          {todo.notes ? <Ionicons name="document-text-outline" size={11} color={palette.textFaint} /> : null}
           <View
             style={{
               borderRadius: 999,
               backgroundColor: palette.cardAlt,
-              paddingHorizontal: 7,
+              paddingHorizontal: 8,
               paddingVertical: 2,
-              marginLeft: 8,
+              marginLeft: "auto",
             }}
           >
-            <Text style={{ fontSize: 10.5, fontWeight: "600", color: palette.textDim }}>{titleize(todo.category)}</Text>
+            <Text style={{ fontSize: 10, fontWeight: "600", color: palette.textDim }}>
+              {titleize(todo.category)}
+            </Text>
           </View>
         </View>
       </View>

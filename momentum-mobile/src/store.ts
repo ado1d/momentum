@@ -1,7 +1,7 @@
 // Global app state (zustand). Persisted keys live in the SQLite kv table.
 
 import { create } from "zustand";
-import { kvGet, kvSet, pendingSince } from "./db";
+import { initDatabase, kvGet, kvSet, pendingSince } from "./db";
 import type { ThemeMode } from "./theme";
 
 export interface AuthUser {
@@ -26,7 +26,8 @@ interface AppState {
   lastSyncAt: string | null;
   lastSyncMessage: string | null;
   pending: number;
-  hydrate: () => void;
+  quickAddOpen: boolean;
+  hydrate: () => Promise<void>;
   setAuth: (a: AuthUser | null) => void;
   setTheme: (t: ThemeMode) => void;
   setAutoSync: (v: boolean) => void;
@@ -37,6 +38,7 @@ interface AppState {
   setSyncDone: (iso: string | null, message: string | null) => void;
   refreshPending: () => void;
   bump: () => void;
+  setQuickAddOpen: (v: boolean) => void;
 }
 
 const PERSIST_KEYS = ["auth", "theme", "autoSync", "serverUrl", "reminderEnabled", "reminderHour", "reminderMinute", "lastSyncAt"] as const;
@@ -84,9 +86,11 @@ export const useApp = create<AppState>((set, get) => ({
   lastSyncAt: null,
   lastSyncMessage: null,
   pending: 0,
+  quickAddOpen: false,
 
-  hydrate: () => {
+  hydrate: async () => {
     if (get().hydrated) return;
+    await initDatabase();
     const next: Partial<PersistedShape> = {};
     for (const key of PERSIST_KEYS) {
       const raw = kvGet(key);
@@ -155,6 +159,7 @@ export const useApp = create<AppState>((set, get) => ({
   },
   refreshPending: () => set({ pending: pendingSince(get().lastSyncAt) }),
   bump: () => set((s) => ({ dataVersion: s.dataVersion + 1 })),
+  setQuickAddOpen: (v) => set({ quickAddOpen: v }),
 }));
 
 /** Re-export mutations that bump the data version — screens re-query on change. */

@@ -5,9 +5,16 @@ import { ScrollView, Text, View } from "react-native";
 
 import * as data from "../db";
 import { useApp } from "../store";
-import { Card, OfflinePill, Screen, ScreenHeader, Segmented, SectionTitle, usePalette } from "../components/ui";
+import {
+  Card,
+  OfflinePill,
+  SectionHeading,
+  Segmented,
+  StackHeader,
+  usePalette,
+} from "../components/ui";
 import { MOODS } from "../theme";
-import { addDaysKey, dayKey, minutesToClock } from "../utils";
+import { dayKey, minutesToClock } from "../utils";
 
 export default function InsightsScreen() {
   const { palette } = usePalette();
@@ -49,18 +56,20 @@ export default function InsightsScreen() {
   }
 
   return (
-    <Screen>
-      <ScreenHeader title="Insights" subtitle="Your momentum at a glance" />
-      <OfflinePill />
+    <View style={{ flex: 1, backgroundColor: palette.bg }}>
+      <StackHeader title="Insights" subtitle="Your productivity trends at a glance" />
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40 }}>
+        <OfflinePill />
 
-      <Segmented
-        value={range}
-        onChange={(k) => setRange(k as "7" | "30")}
-        options={[
-          { key: "7", label: "Last 7 days" },
-          { key: "30", label: "Last 30 days" },
-        ]}
-      />
+        <Segmented
+          value={range}
+          onChange={(k) => setRange(k as "7" | "30")}
+          options={[
+            { key: "7", label: "Last 7 days" },
+            { key: "30", label: "Last 30 days" },
+          ]}
+        />
+        <View style={{ height: 12 }} />
 
       {/* Hero numbers */}
       <View style={{ flexDirection: "row", gap: 10 }}>
@@ -74,7 +83,7 @@ export default function InsightsScreen() {
         </Card>
       </View>
 
-      <SectionTitle>Tasks completed per day</SectionTitle>
+      <SectionHeading title="Tasks completed per day" />
       <Card>
         <View style={{ flexDirection: "row", alignItems: "flex-end", height: 110, gap: range === "7" ? 10 : 4 }}>
           {days.map((d) => (
@@ -102,7 +111,7 @@ export default function InsightsScreen() {
         </View>
       </Card>
 
-      <SectionTitle>Focus minutes</SectionTitle>
+      <SectionHeading title="Focus minutes" />
       <Card>
         <View style={{ flexDirection: "row", alignItems: "flex-end", height: 90, gap: range === "7" ? 10 : 4 }}>
           {days.map((d) => (
@@ -122,7 +131,7 @@ export default function InsightsScreen() {
         </View>
       </Card>
 
-      <SectionTitle>Habits</SectionTitle>
+      <SectionHeading title="Habits" />
       <Card>
         <View style={{ flexDirection: "row", alignItems: "baseline" }}>
           <Text style={{ fontSize: 34, fontWeight: "800", color: palette.text }}>{habitPct}%</Text>
@@ -171,7 +180,7 @@ export default function InsightsScreen() {
         )}
       </Card>
 
-      <SectionTitle>Journal & mood</SectionTitle>
+      <SectionHeading title="Journal & mood" />
       <Card>
         <Text style={{ color: palette.text, fontSize: 14, fontWeight: "600" }}>
           {journalDays} journaled {journalDays === 1 ? "day" : "days"} in the last {range}
@@ -201,7 +210,7 @@ export default function InsightsScreen() {
         </View>
       </Card>
 
-      <SectionTitle>All-time</SectionTitle>
+      <SectionHeading title="All-time" />
       <Card>
         <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
           <Text style={{ color: palette.textDim, fontSize: 13 }}>Tasks completed</Text>
@@ -220,6 +229,7 @@ export default function InsightsScreen() {
           <Text style={{ color: palette.text, fontSize: 13, fontWeight: "700" }}>{minutesToClock(totals.focusMinutes)}</Text>
         </View>
       </Card>
-    </Screen>
+      </ScrollView>
+    </View>
   );
 }

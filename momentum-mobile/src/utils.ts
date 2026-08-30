@@ -12,7 +12,7 @@ export function nowISO(): string {
 
 /** Local calendar day key: YYYY-MM-DD (device timezone). */
 export function dayKey(d: Date | string | number = new Date()): string {
-  const dt = typeof d === "string" ? new Date(d) : d;
+  const dt = typeof d === "string" ? new Date(d) : new Date(d);
   const y = dt.getFullYear();
   const m = String(dt.getMonth() + 1).padStart(2, "0");
   const day = String(dt.getDate()).padStart(2, "0");

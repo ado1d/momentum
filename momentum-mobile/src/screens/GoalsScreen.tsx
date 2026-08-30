@@ -3,11 +3,11 @@
 import React, { useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
 
 import * as data from "../db";
 import { useApp, bumpData } from "../store";
 import { scheduleSync } from "../sync";
+import { toast } from "../toast";
 import {
   Bar,
   Btn,
@@ -18,23 +18,30 @@ import {
   FieldLabel,
   Input,
   OfflinePill,
-  Screen,
-  ScreenHeader,
   Segmented,
   Sheet,
   usePalette,
 } from "../components/ui";
 import { dayKey, relativeDay, titleize } from "../utils";
 
-const CATEGORIES = ["learning", "fitness", "career", "personal", "finance", "other"];
+const CATEGORIES = [
+  "learning",
+  "fitness",
+  "career",
+  "personal",
+  "finance",
+  "other",
+];
 const PERIODS = ["daily", "weekly", "monthly"];
 
 export default function GoalsScreen() {
   const { palette } = usePalette();
-  const navigation = useNavigation<any>();
   const version = useApp((s) => s.dataVersion);
   const [status, setStatus] = useState<"active" | "completed">("active");
-  const [editor, setEditor] = useState<{ open: boolean; id: string | null }>({ open: false, id: null });
+  const [editor, setEditor] = useState<{ open: boolean; id: string | null }>({
+    open: false,
+    id: null,
+  });
 
   const goals = useMemo(
     () => data.goalsList(status),
@@ -50,17 +57,17 @@ export default function GoalsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: palette.bg }}>
-      <ScreenHeader
-        title="Goals"
-        subtitle="Direction beats speed"
-        right={
-          <Pressable onPress={() => navigation.goBack()} style={{ padding: 6 }}>
-            <Ionicons name="arrow-back" size={22} color={palette.primary} />
-          </Pressable>
-        }
-      />
-      <OfflinePill />
-      <View style={{ paddingHorizontal: 16 }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }}
+      >
+        <View style={{ paddingTop: 8, paddingBottom: 12 }}>
+          <Text style={{ color: palette.text, fontSize: 23, fontWeight: "800", letterSpacing: -0.4 }}>Goals</Text>
+          <Text style={{ color: palette.textDim, fontSize: 13.5, marginTop: 3 }}>
+            Daily learning goals, weekly targets, monthly ambitions
+          </Text>
+        </View>
+        <OfflinePill />
         <Segmented
           value={status}
           onChange={(k) => setStatus(k as "active" | "completed")}
@@ -69,21 +76,38 @@ export default function GoalsScreen() {
             { key: "completed", label: "Completed" },
           ]}
         />
-      </View>
-
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 100 }}>
+        <View style={{ height: 12 }} />
         {goals.length === 0 ? (
           <Card style={{ marginTop: 4 }}>
             <EmptyState
               icon="flag-outline"
-              title={status === "active" ? "No active goals" : "Nothing completed yet"}
-              hint={status === "active" ? "Set a target — small and specific wins." : "Finish a goal to see it here."}
-              action={status === "active" ? <Btn label="New goal" icon="add" onPress={() => setEditor({ open: true, id: null })} /> : undefined}
+              title={
+                status === "active"
+                  ? "No active goals"
+                  : "Nothing completed yet"
+              }
+              hint={
+                status === "active"
+                  ? "Set a target — small and specific wins."
+                  : "Finish a goal to see it here."
+              }
+              action={
+                status === "active" ? (
+                  <Btn
+                    label="New goal"
+                    icon="add"
+                    onPress={() => setEditor({ open: true, id: null })}
+                  />
+                ) : undefined
+              }
             />
           </Card>
         ) : (
           goals.map((g) => {
-            const pct = g.target <= 0 ? 0 : Math.min(100, Math.round((g.progress / g.target) * 100));
+            const pct =
+              g.target <= 0
+                ? 0
+                : Math.min(100, Math.round((g.progress / g.target) * 100));
             const complete = g.progress >= g.target;
             return (
               <Card key={g.id}>
@@ -94,7 +118,9 @@ export default function GoalsScreen() {
                         width: 40,
                         height: 40,
                         borderRadius: 13,
-                        backgroundColor: complete ? palette.primarySoft : palette.cardAlt,
+                        backgroundColor: complete
+                          ? palette.primarySoft
+                          : palette.cardAlt,
                         alignItems: "center",
                         justifyContent: "center",
                         marginRight: 12,
@@ -107,28 +133,73 @@ export default function GoalsScreen() {
                       />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 15.5, fontWeight: "700", color: palette.text }} numberOfLines={1}>
+                      <Text
+                        style={{
+                          fontSize: 15.5,
+                          fontWeight: "700",
+                          color: palette.text,
+                        }}
+                        numberOfLines={1}
+                      >
                         {g.title}
                       </Text>
-                      <Text style={{ fontSize: 12, color: palette.textFaint, marginTop: 2 }}>
+                      <Text
+                        style={{
+                          fontSize: 12,
+                          color: palette.textFaint,
+                          marginTop: 2,
+                        }}
+                      >
                         {titleize(g.category)} · {g.period}
                         {g.endDate ? ` · ends ${relativeDay(g.endDate)}` : ""}
                       </Text>
                     </View>
-                  </Pressable>
-
-                  <View style={{ flexDirection: "row", alignItems: "center", marginTop: 14 }}>
-                    <Text style={{ fontSize: 13, fontWeight: "700", color: complete ? palette.primary : palette.text, width: 70 }}>
-                      {g.progress}/{g.target} {g.unit ?? ""}
-                    </Text>
-                    <View style={{ flex: 1, marginLeft: 10 }}>
-                      <Bar value={g.progress} max={g.target} color={complete ? palette.primary : "#fbbf24"} />
-                    </View>
-                    <Text style={{ fontSize: 12, color: palette.textDim, width: 40, textAlign: "right" }}>{pct}%</Text>
                   </View>
                 </Pressable>
 
-                <View style={{ flexDirection: "row", justifyContent: "flex-end", marginTop: 10 }}>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    marginTop: 14,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 13,
+                      fontWeight: "700",
+                      color: complete ? palette.primary : palette.text,
+                      width: 70,
+                    }}
+                  >
+                    {g.progress}/{g.target} {g.unit ?? ""}
+                  </Text>
+                  <View style={{ flex: 1, marginLeft: 10 }}>
+                    <Bar
+                      value={g.progress}
+                      max={g.target}
+                      color={complete ? palette.primary : "#fbbf24"}
+                    />
+                  </View>
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: palette.textDim,
+                      width: 40,
+                      textAlign: "right",
+                    }}
+                  >
+                    {pct}%
+                  </Text>
+                </View>
+
+                <View
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "flex-end",
+                    marginTop: 10,
+                  }}
+                >
                   <Pressable
                     onPress={() => adjust(g.id, -1)}
                     style={{
@@ -164,12 +235,24 @@ export default function GoalsScreen() {
       </ScrollView>
 
       <Fab onPress={() => setEditor({ open: true, id: null })} />
-      <GoalEditorSheet visible={editor.open} goalId={editor.id} onClose={() => setEditor({ open: false, id: null })} />
+      <GoalEditorSheet
+        visible={editor.open}
+        goalId={editor.id}
+        onClose={() => setEditor({ open: false, id: null })}
+      />
     </View>
   );
 }
 
-function GoalEditorSheet({ visible, goalId, onClose }: { visible: boolean; goalId: string | null; onClose: () => void }) {
+function GoalEditorSheet({
+  visible,
+  goalId,
+  onClose,
+}: {
+  visible: boolean;
+  goalId: string | null;
+  onClose: () => void;
+}) {
   const { palette } = usePalette();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -217,6 +300,7 @@ function GoalEditorSheet({ visible, goalId, onClose }: { visible: boolean; goalI
     });
     bumpData();
     scheduleSync();
+    toast.success(goalId ? "Goal updated" : "Goal created");
     onClose();
   };
 
@@ -242,33 +326,71 @@ function GoalEditorSheet({ visible, goalId, onClose }: { visible: boolean; goalI
               style={{ flex: 1 }}
             />
           ) : null}
-          <Btn label={goalId ? "Save goal" : "Add goal"} icon="checkmark" onPress={save} style={{ flex: 2 }} />
+          <Btn
+            label={goalId ? "Save goal" : "Add goal"}
+            icon="checkmark"
+            onPress={save}
+            style={{ flex: 2 }}
+          />
         </View>
       }
     >
-      <Input value={title} onChangeText={setTitle} placeholder="e.g. Read 100 pages a week" autoFocus={!goalId} onSubmitEditing={save} />
+      <Input
+        value={title}
+        onChangeText={setTitle}
+        placeholder="e.g. Read 100 pages a week"
+        autoFocus={!goalId}
+        onSubmitEditing={save}
+      />
 
       <FieldLabel>Why this matters (optional)</FieldLabel>
-      <Input value={description} onChangeText={setDescription} placeholder="Motivation…" multiline style={{ minHeight: 70 }} />
+      <Input
+        value={description}
+        onChangeText={setDescription}
+        placeholder="Motivation…"
+        multiline
+        style={{ minHeight: 70 }}
+      />
 
       <FieldLabel>Category</FieldLabel>
       <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
         {CATEGORIES.map((c) => (
-          <Chip key={c} label={titleize(c)} active={category === c} onPress={() => setCategory(c)} />
+          <Chip
+            key={c}
+            label={titleize(c)}
+            active={category === c}
+            onPress={() => setCategory(c)}
+          />
         ))}
       </View>
 
       <FieldLabel>Period</FieldLabel>
       <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
         {PERIODS.map((p) => (
-          <Chip key={p} label={titleize(p)} active={period === p} onPress={() => setPeriod(p)} />
+          <Chip
+            key={p}
+            label={titleize(p)}
+            active={period === p}
+            onPress={() => setPeriod(p)}
+          />
         ))}
       </View>
 
       <FieldLabel>Target</FieldLabel>
       <View style={{ flexDirection: "row", gap: 10 }}>
-        <Input value={target} onChangeText={setTarget} keyboardType="numeric" placeholder="7" style={{ width: 90 }} />
-        <Input value={unit} onChangeText={setUnit} placeholder="unit (pages, km…)" style={{ flex: 1 }} />
+        <Input
+          value={target}
+          onChangeText={setTarget}
+          keyboardType="numeric"
+          placeholder="7"
+          style={{ width: 90 }}
+        />
+        <Input
+          value={unit}
+          onChangeText={setUnit}
+          placeholder="unit (pages, km…)"
+          style={{ flex: 1 }}
+        />
       </View>
     </Sheet>
   );

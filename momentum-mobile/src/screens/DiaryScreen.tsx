@@ -3,11 +3,11 @@
 import React, { useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
 
 import * as data from "../db";
 import { useApp, bumpData } from "../store";
 import { scheduleSync } from "../sync";
+import { toast } from "../toast";
 import {
   Btn,
   Card,
@@ -15,9 +15,8 @@ import {
   FieldLabel,
   Input,
   OfflinePill,
-  Screen,
-  ScreenHeader,
-  SectionTitle,
+  SectionHeading,
+  StackHeader,
   usePalette,
 } from "../components/ui";
 import { MOODS } from "../theme";
@@ -25,7 +24,6 @@ import { addDaysKey, dayKey, isFuture, isToday, relativeDay } from "../utils";
 
 export default function DiaryScreen() {
   const { palette } = usePalette();
-  const navigation = useNavigation<any>();
   const version = useApp((s) => s.dataVersion);
   const [date, setDate] = useState(dayKey());
   const [title, setTitle] = useState("");
@@ -72,6 +70,7 @@ export default function DiaryScreen() {
     });
     bumpData();
     scheduleSync();
+    toast.success(entry ? "Diary updated" : "Diary saved");
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -80,15 +79,7 @@ export default function DiaryScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: palette.bg }}>
-      <ScreenHeader
-        title="Diary"
-        subtitle="One honest page a day"
-        right={
-          <Pressable onPress={() => navigation.goBack()} style={{ padding: 6 }}>
-            <Ionicons name="arrow-back" size={22} color={palette.primary} />
-          </Pressable>
-        }
-      />
+      <StackHeader title="Daily Diary" subtitle="Reflect, learn, grow" />
       <OfflinePill />
 
       <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40 }}>
@@ -194,7 +185,7 @@ export default function DiaryScreen() {
           </View>
         </Card>
 
-        <SectionTitle>Recent entries</SectionTitle>
+        <SectionHeading title="Recent entries" />
         {recent.length === 0 ? (
           <Card>
             <EmptyState icon="book-outline" title="Your diary starts today" hint="Write the first page — future-you will thank you." />

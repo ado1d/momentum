@@ -8,6 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as data from "../db";
 import { bumpData } from "../store";
 import { scheduleSync } from "../sync";
+import { toast } from "../toast";
 import {
   Btn,
   Chip,
@@ -107,6 +108,7 @@ export function TaskEditorSheet({
     });
     bumpData();
     scheduleSync();
+    toast.success(todoId ? "Task updated" : "Task added");
     onClose();
   };
 
@@ -177,7 +179,6 @@ export function TaskEditorSheet({
           label={dueLabel}
           active={!!dueDate}
           onPress={() => setShowDatePicker(true)}
-          icon=""
         />
         {dueDate ? (
           <>

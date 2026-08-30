@@ -30,7 +30,7 @@ export async function signInWithGoogle(): Promise<SignInResult> {
     state,
   )}&redirect=${encodeURIComponent(redirect)}`;
 
-  let result: WebBrowser.WebBrowserResult;
+  let result: WebBrowser.WebBrowserAuthSessionResult;
   try {
     result = await WebBrowser.openAuthSessionAsync(startUrl, redirect);
   } catch {

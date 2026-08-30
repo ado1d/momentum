@@ -1,22 +1,38 @@
-# Momentum for Android 📱
+# Momentum for Android 📱 (v1.1 — the "looks & works like the web app" release)
 
 The full Momentum productivity app as a **native Android app** — built with Expo (React Native).
 It works **100% offline** (everything is stored in the phone's local SQLite database) and can
 **sign in with Google** to sync with your Momentum web account.
 
+> **Upgrading from v1.0?** This release fixes the issues you hit:
+> - **You can now add tasks / notes / diary entries** — the editor sheets had a layout bug
+>   that collapsed the input area to zero height on Android. Fixed everywhere.
+> - **The UI now mirrors the web app** — same top bar (brand · search · bell · quick-add ·
+>   avatar), same bottom tabs (Dashboard · Tasks · Routine · Goals · More), same dashboard
+>   (greeting, quote, stat cards, this-week chart, overdue banner, sections), same
+>   emerald/teal theme in light & dark.
+> - **New: Quick Add** (+ in the top bar) with Task / Note / Diary tabs — exactly like the web.
+> - **New: global search**, bell menu ("what needs you today"), toast feedback, SVG progress
+>   rings, onboarding card with starter habits.
+> - **Fixed:** content drawing under the status bar; the +/FAB button being covered by the
+>   tab bar; note editor's ✕ saving instead of discarding; search now finds completed tasks.
+>
+> Install the new APK **over** the old one (same package name) — your existing data stays.
+
 Same features as the web app:
 
 | Area | What you get |
 | --- | --- |
-| **Dashboard** | Today's progress ring, habits row, overdue + today's tasks, focus stats |
-| **Tasks** | Priorities, categories, due dates & times, repeat rules, checklists (subtasks) |
-| **Routine** | Habits with streaks & 7-day history + morning/afternoon/evening schedule blocks |
-| **Goals** | Daily/weekly/monthly goals with progress bars and categories |
-| **Notes** | Colored, pinnable, searchable notes |
+| **Dashboard** | Greeting + score pill, quote card, 2×2 stat cards (score ring, tasks, habits, streak), this-week chart, overdue banner, today's focus, habit chips with week dots, active goals, recent journal |
+| **Tasks** | All/Today/Upcoming/Done tabs, priorities, categories, due dates & times, repeat rules, checklists (subtasks) |
+| **Routine** | Habits with streaks & 7-day history + morning/afternoon/evening schedule blocks with a week strip |
+| **Goals** | Daily/weekly/monthly goals with progress bars, +/- steppers and categories |
+| **Notes** | Colored, pinnable, searchable notes in a 2-column grid |
 | **Diary** | One entry per day: mood, energy, gratitude, free writing, recent-entries timeline |
 | **Focus** | Pomodoro timer with presets, task linking and session history |
-| **Insights** | Task/focus/habit charts, mood distribution, all-time totals |
+| **Insights** | Task/focus/habit charts, habit consistency, mood distribution, all-time totals |
 | **Settings** | Google sign-in & sync, dark/light theme, daily reminder, JSON backup export/import |
+| **Everywhere** | Quick Add sheet (Task/Note/Diary), global search, bell menu, toasts, offline-first |
 
 ---
 
@@ -119,23 +135,27 @@ focus sessions — last change wins).
 
 ```
 momentum-mobile/
-├── App.tsx                 # Navigation + theme + connectivity wiring
+├── App.tsx                 # App shell: top bar, bottom tabs, More sheet, Quick Add, toasts
 ├── app.json                # Expo config (app name, icon, Android package)
 ├── eas.json                # Build profiles (preview = APK)
 ├── assets/                 # App icon + splash
 └── src/
-    ├── db.ts               # SQLite layer — all offline data + sync merge logic
+    ├── db.ts               # SQLite layer — all offline data + sync merge + dashboard stats
+    ├── driver.ts           # DB driver bootstrap (native: sync no-op)
     ├── sync.ts             # Background sync engine (last-write-wins)
     ├── auth.ts             # Google sign-in flow
     ├── store.ts            # Global state (zustand), persisted in SQLite
     ├── notifications.ts    # Daily reminder
-    ├── theme.ts            # Dark/light palettes (matches the web app)
+    ├── quick-add.tsx       # Quick Add sheet (Task / Note / Diary)
+    ├── toast.tsx           # Sonner-style toast feedback
+    ├── theme.ts            # Dark/light palettes (matches the web app) + quotes
     ├── utils.ts            # Dates, streaks, formatting
     ├── components/
-    │   ├── ui.tsx          # Buttons, cards, chips, sheets, rings…
-    │   └── task-editor.tsx # Task create/edit sheet
-    └── screens/            # Dashboard, Tasks, Focus, Insights, More,
-                            # Routine, Goals, Notes, Diary, Settings
+    │   ├── ui.tsx          # Buttons, cards, chips, sheets, SVG rings, section headings…
+    │   ├── task-editor.tsx # Task create/edit sheet
+    │   └── bell-sheet.tsx  # "What needs you today" notifications menu
+    └── screens/            # Dashboard, Tasks, Routine, Goals (tabs)
+                            # + Focus, Insights, Notes, Diary, Settings, Search (stack)
 ```
 
 ## 🛠️ Customization
@@ -153,6 +173,7 @@ momentum-mobile/
 | Google sign-in returns "not configured" | The redirect URI above isn't added (or GOOGLE_CLIENT_ID/SECRET env vars missing on the server) |
 | APK won't install | Allow "install unknown apps" for your browser in Android settings |
 | Reminder notifications don't fire | Check the phone's battery optimization isn't killing Momentum (common on Xiaomi/Oppo) |
+| Installing the new APK over the old one | Just install it — data is kept (same package name). If Android refuses, uninstall first and re-import a backup (Settings → Export before uninstalling) |
 
 ---
 

@@ -53,7 +53,7 @@ export async function syncNow(manual = false): Promise<SyncResult> {
       serverTime: string;
     };
 
-    const changed = applyServerData(body.data, body.tombstones ?? []);
+    const changed = applyServerData(body.data as Record<string, never[]>, body.tombstones ?? []);
     useApp.getState().setSyncDone(body.serverTime, null);
     useApp.getState().bump();
 

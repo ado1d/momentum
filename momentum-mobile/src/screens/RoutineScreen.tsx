@@ -4,11 +4,11 @@ import React, { useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { useNavigation } from "@react-navigation/native";
 
 import * as data from "../db";
 import { useApp, bumpData } from "../store";
 import { scheduleSync } from "../sync";
+import { toast } from "../toast";
 import {
   Bar,
   Btn,
@@ -19,9 +19,7 @@ import {
   FieldLabel,
   Input,
   OfflinePill,
-  Screen,
-  ScreenHeader,
-  SectionTitle,
+  SectionHeading,
   Segmented,
   Sheet,
   usePalette,
@@ -35,7 +33,6 @@ const DAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
 
 export default function RoutineScreen() {
   const { palette } = usePalette();
-  const navigation = useNavigation<any>();
   const version = useApp((s) => s.dataVersion);
   const [tab, setTab] = useState<"habits" | "schedule">("habits");
   const [selectedDay, setSelectedDay] = useState(dayKey());
@@ -74,17 +71,12 @@ export default function RoutineScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: palette.bg }}>
-      <ScreenHeader
-        title="Routine"
-        subtitle="Streaks you protect, a schedule you trust"
-        right={
-          <Pressable onPress={() => navigation.goBack()} style={{ padding: 6 }}>
-            <Ionicons name="arrow-back" size={22} color={palette.primary} />
-          </Pressable>
-        }
-      />
-      <OfflinePill />
-      <View style={{ paddingHorizontal: 16 }}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }}>
+        <View style={{ paddingTop: 8, paddingBottom: 12 }}>
+          <Text style={{ color: palette.text, fontSize: 23, fontWeight: "800", letterSpacing: -0.4 }}>Daily Routine</Text>
+          <Text style={{ color: palette.textDim, fontSize: 13.5, marginTop: 3 }}>Build consistency, one day at a time</Text>
+        </View>
+        <OfflinePill />
         <Segmented
           value={tab}
           onChange={(k) => setTab(k as "habits" | "schedule")}
@@ -93,10 +85,10 @@ export default function RoutineScreen() {
             { key: "schedule", label: "Daily schedule" },
           ]}
         />
-      </View>
+        <View style={{ height: 12 }} />
 
       {tab === "habits" ? (
-        <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 100 }}>
+        <View>
           {habits.length === 0 ? (
             <Card style={{ marginTop: 4 }}>
               <EmptyState
@@ -158,9 +150,9 @@ export default function RoutineScreen() {
               </Card>
             ))
           )}
-        </ScrollView>
+        </View>
       ) : (
-        <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 100 }}>
+        <View>
           {/* Week strip */}
           <View style={{ flexDirection: "row", gap: 6, marginBottom: 12 }}>
             {weekStrip.map((d) => (
@@ -204,9 +196,9 @@ export default function RoutineScreen() {
             if (rows.length === 0) return null;
             return (
               <View key={section}>
-                <SectionTitle>
-                  {section === "morning" ? "🌅 Morning" : section === "afternoon" ? "🌤 Afternoon" : "🌙 Evening"}
-                </SectionTitle>
+                <SectionHeading
+                  title={section === "morning" ? "🌅 Morning" : section === "afternoon" ? "🌤 Afternoon" : "🌙 Evening"}
+                />
                 {rows.map((t) => (
                   <RoutineRow
                     key={t.id}
@@ -234,8 +226,9 @@ export default function RoutineScreen() {
               />
             </Card>
           ) : null}
-        </ScrollView>
+        </View>
       )}
+      </ScrollView>
 
       <Fab onPress={() => (tab === "habits" ? setHabitEditor({ open: true, id: null }) : setRoutineEditor({ open: true, id: null }))} />
 
@@ -356,6 +349,7 @@ function HabitEditorSheet({ visible, habitId, onClose }: { visible: boolean; hab
     data.saveHabit(habitId, { name: trimmed, emoji, color, timeOfDay });
     bumpData();
     scheduleSync();
+    toast.success(habitId ? "Habit updated" : "Habit started — day one of the streak");
     onClose();
   };
 
@@ -483,6 +477,7 @@ function RoutineEditorSheet({ visible, taskId, onClose }: { visible: boolean; ta
     data.saveRoutineTask(taskId, { name: trimmed, emoji, section, time, days: dayStr });
     bumpData();
     scheduleSync();
+    toast.success(taskId ? "Block updated" : "Block added");
     onClose();
   };
 

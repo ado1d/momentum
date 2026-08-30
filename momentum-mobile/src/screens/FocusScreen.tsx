@@ -7,6 +7,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as data from "../db";
 import { useApp, bumpData } from "../store";
 import { scheduleSync } from "../sync";
+import { toast } from "../toast";
 import {
   Bar,
   Btn,
@@ -17,10 +18,9 @@ import {
   Input,
   OfflinePill,
   ProgressRing,
-  Screen,
-  ScreenHeader,
-  SectionTitle,
+  SectionHeading,
   Sheet,
+  StackHeader,
   usePalette,
 } from "../components/ui";
 import { dayKey, formatClock, formatTime, minutesToClock } from "../utils";
@@ -95,6 +95,7 @@ export default function FocusScreen() {
     data.saveFocusSession(worked, label.trim() || linkedTask?.title || null, linkedTaskId, startedAtRef.current);
     bumpData();
     scheduleSync();
+    toast.success(`Focus session saved · ${worked}m`);
     setSaveOpen(false);
     setLabel("");
     setLinkedTaskId(null);
@@ -105,7 +106,7 @@ export default function FocusScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: palette.bg }}>
-      <ScreenHeader title="Focus" subtitle="Deep work, one session at a time" />
+      <StackHeader title="Focus" subtitle="Pomodoro deep-work sessions" />
       <OfflinePill />
       <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}>
         <Card style={{ alignItems: "center", paddingVertical: 26 }}>
@@ -185,7 +186,7 @@ export default function FocusScreen() {
           </Card>
         </View>
 
-        <SectionTitle>Today's sessions</SectionTitle>
+        <SectionHeading title="Today's sessions" />
         {todaySessions.length === 0 ? (
           <Card>
             <EmptyState icon="timer-outline" title="No sessions yet today" hint="Start the timer — even 15 focused minutes counts." />

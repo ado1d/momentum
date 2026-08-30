@@ -81,3 +81,6 @@ qa-*.png
 /db/
 prisma/schema.local.prisma
 .zscripts/
+
+# mobile app fix working dir (test env with node_modules)
+/android-fix/

@@ -3,9 +3,122 @@
 // a background, best-effort LWW merge with the Momentum web backend.
 
 import * as SQLite from "expo-sqlite";
+import { Platform } from "react-native";
+import { ensureDriverReady } from "./driver";
 import { dayKey, isoWeekday, newId, nowISO, streakFromKeys } from "./utils";
 
-export const db = SQLite.openDatabaseSync("momentum.db");
+const SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
+
+CREATE TABLE IF NOT EXISTS todos (
+  id TEXT PRIMARY KEY NOT NULL, title TEXT NOT NULL, notes TEXT,
+  priority TEXT NOT NULL DEFAULT 'medium', category TEXT NOT NULL DEFAULT 'personal',
+  dueDate TEXT, reminderAt TEXT, repeat TEXT NOT NULL DEFAULT 'none',
+  completed INTEGER NOT NULL DEFAULT 0, completedAt TEXT,
+  createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, deletedAt TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_todos_due ON todos(completed, dueDate) WHERE deletedAt IS NULL;
+
+CREATE TABLE IF NOT EXISTS subtasks (
+  id TEXT PRIMARY KEY NOT NULL, todoId TEXT NOT NULL, title TEXT NOT NULL,
+  completed INTEGER NOT NULL DEFAULT 0, sortOrder INTEGER NOT NULL DEFAULT 0,
+  createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, deletedAt TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_subtasks_todo ON subtasks(todoId) WHERE deletedAt IS NULL;
+
+CREATE TABLE IF NOT EXISTS habits (
+  id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, emoji TEXT NOT NULL DEFAULT '✅',
+  color TEXT NOT NULL DEFAULT 'emerald', timeOfDay TEXT NOT NULL DEFAULT 'anytime',
+  reminderTime TEXT, targetPerDay INTEGER NOT NULL DEFAULT 1,
+  archived INTEGER NOT NULL DEFAULT 0, sortOrder INTEGER NOT NULL DEFAULT 0,
+  createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, deletedAt TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_habits_arch ON habits(archived) WHERE deletedAt IS NULL;
+
+CREATE TABLE IF NOT EXISTS habitLogs (
+  id TEXT PRIMARY KEY NOT NULL, habitId TEXT NOT NULL, date TEXT NOT NULL,
+  createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, deletedAt TEXT,
+  UNIQUE(habitId, date)
+);
+CREATE INDEX IF NOT EXISTS idx_hlogs_date ON habitLogs(date);
+
+CREATE TABLE IF NOT EXISTS routineTasks (
+  id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, emoji TEXT NOT NULL DEFAULT '🌅',
+  section TEXT NOT NULL DEFAULT 'morning', time TEXT,
+  days TEXT NOT NULL DEFAULT '1,2,3,4,5,6,7',
+  archived INTEGER NOT NULL DEFAULT 0, sortOrder INTEGER NOT NULL DEFAULT 0,
+  createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, deletedAt TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_rt_section ON routineTasks(section) WHERE deletedAt IS NULL;
+
+CREATE TABLE IF NOT EXISTS routineLogs (
+  id TEXT PRIMARY KEY NOT NULL, taskId TEXT NOT NULL, date TEXT NOT NULL,
+  createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, deletedAt TEXT,
+  UNIQUE(taskId, date)
+);
+CREATE INDEX IF NOT EXISTS idx_rlogs_date ON routineLogs(date);
+
+CREATE TABLE IF NOT EXISTS notes (
+  id TEXT PRIMARY KEY NOT NULL, title TEXT NOT NULL DEFAULT 'Untitled note',
+  content TEXT NOT NULL DEFAULT '', tag TEXT,
+  color TEXT NOT NULL DEFAULT 'default', pinned INTEGER NOT NULL DEFAULT 0,
+  createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, deletedAt TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_notes_upd ON notes(updatedAt);
+
+CREATE TABLE IF NOT EXISTS journal (
+  id TEXT PRIMARY KEY NOT NULL, date TEXT NOT NULL,
+  title TEXT, content TEXT NOT NULL DEFAULT '', mood TEXT, energy INTEGER, gratitude TEXT,
+  createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, deletedAt TEXT,
+  UNIQUE(date)
+);
+CREATE INDEX IF NOT EXISTS idx_journal_date ON journal(date);
+
+CREATE TABLE IF NOT EXISTS goals (
+  id TEXT PRIMARY KEY NOT NULL, title TEXT NOT NULL, description TEXT,
+  category TEXT NOT NULL DEFAULT 'learning', period TEXT NOT NULL,
+  target INTEGER NOT NULL DEFAULT 1, progress INTEGER NOT NULL DEFAULT 0, unit TEXT,
+  status TEXT NOT NULL DEFAULT 'active', startDate TEXT NOT NULL, endDate TEXT,
+  createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, deletedAt TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status) WHERE deletedAt IS NULL;
+
+CREATE TABLE IF NOT EXISTS focusSessions (
+  id TEXT PRIMARY KEY NOT NULL, taskId TEXT, label TEXT,
+  minutes INTEGER NOT NULL, startedAt TEXT NOT NULL, endedAt TEXT NOT NULL,
+  createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, deletedAt TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_focus_ended ON focusSessions(endedAt) WHERE deletedAt IS NULL;
+`;
+
+export type DbHandle = SQLite.SQLiteDatabase;
+
+let handle: DbHandle | null = null;
+
+function createHandle(): DbHandle {
+  const h = SQLite.openDatabaseSync("momentum.db");
+  h.execSync(SCHEMA_SQL);
+  return h;
+}
+
+// Native: the SQLite driver is synchronous — open eagerly (identical to the
+// previous behaviour). Web: opening is deferred to initDatabase() below.
+if (Platform.OS !== "web") {
+  handle = createHandle();
+}
+
+export let db: DbHandle = handle as DbHandle;
+
+/**
+ * Resolves the storage driver before first use. No-op on native; on web the
+ * SQLite engine loads asynchronously. Call before touching `db`.
+ */
+export async function initDatabase(): Promise<void> {
+  if (handle) return;
+  await ensureDriverReady();
+  handle = createHandle();
+  db = handle;
+}
 
 // ─────────────────────────────────────────────────────────────
 // Types (mobile row shapes — dates are ISO strings / YYYY-MM-DD keys)
@@ -122,89 +235,7 @@ export type TableName =
 // Schema
 // ─────────────────────────────────────────────────────────────
 
-db.execSync(`
-CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
-
-CREATE TABLE IF NOT EXISTS todos (
-  id TEXT PRIMARY KEY NOT NULL, title TEXT NOT NULL, notes TEXT,
-  priority TEXT NOT NULL DEFAULT 'medium', category TEXT NOT NULL DEFAULT 'personal',
-  dueDate TEXT, reminderAt TEXT, repeat TEXT NOT NULL DEFAULT 'none',
-  completed INTEGER NOT NULL DEFAULT 0, completedAt TEXT,
-  createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, deletedAt TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_todos_due ON todos(completed, dueDate) WHERE deletedAt IS NULL;
-
-CREATE TABLE IF NOT EXISTS subtasks (
-  id TEXT PRIMARY KEY NOT NULL, todoId TEXT NOT NULL, title TEXT NOT NULL,
-  completed INTEGER NOT NULL DEFAULT 0, sortOrder INTEGER NOT NULL DEFAULT 0,
-  createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, deletedAt TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_subtasks_todo ON subtasks(todoId) WHERE deletedAt IS NULL;
-
-CREATE TABLE IF NOT EXISTS habits (
-  id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, emoji TEXT NOT NULL DEFAULT '✅',
-  color TEXT NOT NULL DEFAULT 'emerald', timeOfDay TEXT NOT NULL DEFAULT 'anytime',
-  reminderTime TEXT, targetPerDay INTEGER NOT NULL DEFAULT 1,
-  archived INTEGER NOT NULL DEFAULT 0, sortOrder INTEGER NOT NULL DEFAULT 0,
-  createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, deletedAt TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_habits_arch ON habits(archived) WHERE deletedAt IS NULL;
-
-CREATE TABLE IF NOT EXISTS habitLogs (
-  id TEXT PRIMARY KEY NOT NULL, habitId TEXT NOT NULL, date TEXT NOT NULL,
-  createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, deletedAt TEXT,
-  UNIQUE(habitId, date)
-);
-CREATE INDEX IF NOT EXISTS idx_hlogs_date ON habitLogs(date);
-
-CREATE TABLE IF NOT EXISTS routineTasks (
-  id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, emoji TEXT NOT NULL DEFAULT '🌅',
-  section TEXT NOT NULL DEFAULT 'morning', time TEXT,
-  days TEXT NOT NULL DEFAULT '1,2,3,4,5,6,7',
-  archived INTEGER NOT NULL DEFAULT 0, sortOrder INTEGER NOT NULL DEFAULT 0,
-  createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, deletedAt TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_rt_section ON routineTasks(section) WHERE deletedAt IS NULL;
-
-CREATE TABLE IF NOT EXISTS routineLogs (
-  id TEXT PRIMARY KEY NOT NULL, taskId TEXT NOT NULL, date TEXT NOT NULL,
-  createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, deletedAt TEXT,
-  UNIQUE(taskId, date)
-);
-CREATE INDEX IF NOT EXISTS idx_rlogs_date ON routineLogs(date);
-
-CREATE TABLE IF NOT EXISTS notes (
-  id TEXT PRIMARY KEY NOT NULL, title TEXT NOT NULL DEFAULT 'Untitled note',
-  content TEXT NOT NULL DEFAULT '', tag TEXT,
-  color TEXT NOT NULL DEFAULT 'default', pinned INTEGER NOT NULL DEFAULT 0,
-  createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, deletedAt TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_notes_upd ON notes(updatedAt);
-
-CREATE TABLE IF NOT EXISTS journal (
-  id TEXT PRIMARY KEY NOT NULL, date TEXT NOT NULL,
-  title TEXT, content TEXT NOT NULL DEFAULT '', mood TEXT, energy INTEGER, gratitude TEXT,
-  createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, deletedAt TEXT,
-  UNIQUE(date)
-);
-CREATE INDEX IF NOT EXISTS idx_journal_date ON journal(date);
-
-CREATE TABLE IF NOT EXISTS goals (
-  id TEXT PRIMARY KEY NOT NULL, title TEXT NOT NULL, description TEXT,
-  category TEXT NOT NULL DEFAULT 'learning', period TEXT NOT NULL,
-  target INTEGER NOT NULL DEFAULT 1, progress INTEGER NOT NULL DEFAULT 0, unit TEXT,
-  status TEXT NOT NULL DEFAULT 'active', startDate TEXT NOT NULL, endDate TEXT,
-  createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, deletedAt TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status) WHERE deletedAt IS NULL;
-
-CREATE TABLE IF NOT EXISTS focusSessions (
-  id TEXT PRIMARY KEY NOT NULL, taskId TEXT, label TEXT,
-  minutes INTEGER NOT NULL, startedAt TEXT NOT NULL, endedAt TEXT NOT NULL,
-  createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, deletedAt TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_focus_ended ON focusSessions(endedAt) WHERE deletedAt IS NULL;
-`);
+// (declared as SCHEMA_SQL above — applied on open)
 
 // ─────────────────────────────────────────────────────────────
 // kv store (settings / auth persistence)
@@ -236,9 +267,10 @@ export function list<T extends AnyRow>(table: TableName, where = "", params: (st
   const sql = `SELECT * FROM ${table} ${where}`;
   const rows = db.getAllSync<T & AnyRow>(sql, params);
   for (const r of rows) {
-    if ("completed" in r) r.completed = (r.completed as number) ? 1 : 0;
-    if ("archived" in r) r.archived = (r.archived as number) ? 1 : 0;
-    if ("pinned" in r) r.pinned = (r.pinned as number) ? 1 : 0;
+    const row = r as AnyRow;
+    if ("completed" in row) row.completed = row.completed ? 1 : 0;
+    if ("archived" in row) row.archived = row.archived ? 1 : 0;
+    if ("pinned" in row) row.pinned = row.pinned ? 1 : 0;
   }
   return rows as unknown as T[];
 }
@@ -425,6 +457,8 @@ export interface HabitWithStats extends Habit {
   doneToday: boolean;
   streak: number;
   last7: boolean[]; // oldest → newest (Mon-anchored window ending today)
+  last7Dates: string[]; // matching day keys for the same window
+  last7DoneSet: string[]; // day keys actually done in that window
   total: number;
 }
 
@@ -457,16 +491,23 @@ export function habits(includeArchived = false): HabitWithStats[] {
     const hLogs = byHabit.get(h.id) ?? [];
     const keys = new Set(hLogs.map((l) => l.date));
     const last7: boolean[] = [];
+    const last7Dates: string[] = [];
+    const last7DoneSet: string[] = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      last7.push(keys.has(dayKey(d)));
+      const key = dayKey(d);
+      last7Dates.push(key);
+      if (keys.has(key)) last7DoneSet.push(key);
+      last7.push(keys.has(key));
     }
     return {
       ...(h as unknown as Habit),
       doneToday: keys.has(today),
       streak: streakFromKeys(keys),
       last7,
+      last7Dates,
+      last7DoneSet,
       total: totals.get(h.id) ?? 0,
     };
   });
@@ -1014,6 +1055,122 @@ export function totals(): {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Dashboard model (mirrors the web app's /api/stats computation)
+// ─────────────────────────────────────────────────────────────
+
+const PRIORITY_WEIGHT: Record<string, number> = { urgent: 4, high: 3, medium: 2, low: 1 };
+
+function routineApplies(days: string, key: string): boolean {
+  const wd = isoWeekday(new Date(`${key}T12:00:00`));
+  return (days || "1,2,3,4,5,6,7")
+    .split(",")
+    .map((s) => parseInt(s, 10))
+    .includes(wd);
+}
+
+export interface DashboardModel {
+  score: number;
+  todosDone: number;
+  todosTotal: number;
+  habitsDone: number;
+  habitsTotal: number;
+  routineDone: number;
+  routineTotal: number;
+  bestStreak: number;
+  focusMinutesToday: number;
+  overdueCount: number;
+  overdue: Todo[];
+  upcoming: Todo[]; // next 7 days, sorted like the web (due → priority → created)
+  habits: HabitWithStats[];
+  activeGoals: Goal[];
+  recentJournal: JournalEntry[];
+  week: { key: string; score: number; todosCompleted: number; habitsCompleted: number }[];
+}
+
+export function dashboardModel(): DashboardModel {
+  const today = dayKey();
+  const todos = allTodos();
+  const active = todos.filter((t) => !t.completed);
+  const completed = todos.filter((t) => !!t.completed);
+
+  const todosDoneOn = (key: string) =>
+    completed.filter((t) => t.completedAt && dayKey(t.completedAt) === key).length;
+  const todosTotalOn = (key: string) =>
+    todosDoneOn(key) + active.filter((t) => !t.dueDate || dayKey(t.dueDate) <= key).length;
+
+  const allHabits = habits();
+  const allHabitLogs = list<HabitLog & AnyRow>("habitLogs", "WHERE deletedAt IS NULL");
+  const habitsDoneOn = (key: string) =>
+    allHabits.filter((h) => allHabitLogs.some((l) => l.habitId === h.id && l.date === key)).length;
+
+  const rTasks = list<RoutineTask & AnyRow>(
+    "routineTasks",
+    "WHERE deletedAt IS NULL AND archived = 0",
+  );
+  const scheduledOn = (key: string) => rTasks.filter((t) => routineApplies(t.days, key));
+  const rLogs = list<RoutineLog & AnyRow>("routineLogs", "WHERE deletedAt IS NULL");
+  const routineDoneOn = (key: string) =>
+    scheduledOn(key).filter((t) => rLogs.some((l) => l.taskId === t.id && l.date === key)).length;
+
+  const dayScore = (key: string) =>
+    Math.round(
+      (50 * todosDoneOn(key)) / Math.max(1, todosTotalOn(key)) +
+        (30 * habitsDoneOn(key)) / Math.max(1, allHabits.length) +
+        (20 * routineDoneOn(key)) / Math.max(1, scheduledOn(key).length),
+    );
+
+  const week: DashboardModel["week"] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const key = dayKey(d);
+    week.push({
+      key,
+      score: dayScore(key),
+      todosCompleted: todosDoneOn(key),
+      habitsCompleted: habitsDoneOn(key),
+    });
+  }
+
+  const overdue = active.filter((t) => t.dueDate && dayKey(t.dueDate) < today);
+  const dueSoon = active.filter(
+    (t) => t.dueDate && dayKey(t.dueDate) >= today && dayKey(t.dueDate) <= addDaysKeyLocal(today, 7),
+  );
+  dueSoon.sort((a, b) => {
+    const da = a.dueDate ? new Date(a.dueDate).getTime() : Number.POSITIVE_INFINITY;
+    const dbb = b.dueDate ? new Date(b.dueDate).getTime() : Number.POSITIVE_INFINITY;
+    if (da !== dbb) return da - dbb;
+    return (PRIORITY_WEIGHT[b.priority] ?? 1) - (PRIORITY_WEIGHT[a.priority] ?? 1);
+  });
+
+  return {
+    score: dayScore(today),
+    todosDone: todosDoneOn(today),
+    todosTotal: todosTotalOn(today),
+    habitsDone: habitsDoneOn(today),
+    habitsTotal: allHabits.length,
+    routineDone: routineDoneOn(today),
+    routineTotal: scheduledOn(today).length,
+    bestStreak: allHabits.reduce((m, h) => Math.max(m, h.streak), 0),
+    focusMinutesToday: focusSessionsForDay(today).reduce((s, f) => s + f.minutes, 0),
+    overdueCount: overdue.length,
+    overdue,
+    upcoming: dueSoon,
+    habits: allHabits,
+    activeGoals: goalsList("active"),
+    recentJournal: journalList(3),
+    week,
+  };
+}
+
+function addDaysKeyLocal(key: string, n: number): string {
+  const [y, m, d] = key.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + n);
+  return dayKey(dt);
+}
+
+// ─────────────────────────────────────────────────────────────
 // Sync: collect local dataset (incl. tombstones) & apply server state
 // ─────────────────────────────────────────────────────────────
 
@@ -1099,23 +1256,23 @@ export function applyServerData(
         if (t === "journal" && !local) {
           localByAlt = db.getFirstSync<AnyRow>(
             `SELECT * FROM journal WHERE date = ? AND id != ?`,
-            row.date,
+            row.date as string,
             row.id,
           ) as AnyRow | undefined;
         }
         if (t === "habitLogs" && !local) {
           localByAlt = db.getFirstSync<AnyRow>(
             `SELECT * FROM habitLogs WHERE habitId = ? AND date = ? AND id != ?`,
-            row.habitId,
-            row.date,
+            row.habitId as string,
+            row.date as string,
             row.id,
           ) as AnyRow | undefined;
         }
         if (t === "routineLogs" && !local) {
           localByAlt = db.getFirstSync<AnyRow>(
             `SELECT * FROM routineLogs WHERE taskId = ? AND date = ? AND id != ?`,
-            row.taskId,
-            row.date,
+            row.taskId as string,
+            row.date as string,
             row.id,
           ) as AnyRow | undefined;
         }
@@ -1212,7 +1369,7 @@ function insertServerRow(table: TableName, row: ServerRow, updateId?: string): v
   const colList = cols.join(",");
   db.runSync(
     `INSERT OR REPLACE INTO ${table} (${colList}) VALUES (${placeholders})`,
-    ...cols.map((c, i) => (c === "id" ? idVal : values[i])),
+    ...(cols.map((c, i) => (c === "id" ? idVal : values[i])) as (string | number | null)[]),
   );
 }
 

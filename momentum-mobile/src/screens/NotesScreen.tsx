@@ -1,13 +1,14 @@
-// Notes — searchable note cards with colors and pinning.
+// Notes — mirrors the web app's notes-view: search, pinned section,
+// 2-column colorful cards, full editor sheet (title/content/color/pin).
 
 import React, { useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
 
 import * as data from "../db";
 import { useApp, bumpData } from "../store";
 import { scheduleSync } from "../sync";
+import { toast } from "../toast";
 import {
   Btn,
   Card,
@@ -17,18 +18,16 @@ import {
   FieldLabel,
   Input,
   OfflinePill,
-  Screen,
-  ScreenHeader,
-  SectionTitle,
+  SectionHeading,
   Sheet,
+  StackHeader,
   usePalette,
 } from "../components/ui";
-import { NOTE_COLORS } from "../theme";
+import { NOTE_COLORS, type Palette } from "../theme";
 import { formatDateShort } from "../utils";
 
 export default function NotesScreen() {
-  const { palette, dark } = usePalette();
-  const navigation = useNavigation<any>();
+  const { palette } = usePalette();
   const version = useApp((s) => s.dataVersion);
   const [search, setSearch] = useState("");
   const [editor, setEditor] = useState<{ open: boolean; id: string | null }>({ open: false, id: null });
@@ -43,29 +42,19 @@ export default function NotesScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: palette.bg }}>
-      <ScreenHeader
-        title="Notes"
-        subtitle={`${notes.length} ${notes.length === 1 ? "note" : "notes"}`}
-        right={
-          <Pressable onPress={() => navigation.goBack()} style={{ padding: 6 }}>
-            <Ionicons name="arrow-back" size={22} color={palette.primary} />
-          </Pressable>
-        }
-      />
-      <OfflinePill />
-
-      <View style={{ paddingHorizontal: 16 }}>
+      <StackHeader title="Notes" subtitle="Quick capture & ideas" />
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 110 }}>
+        <OfflinePill />
         <Input
           value={search}
           onChangeText={setSearch}
           placeholder="Search notes…"
-          darkBg
+          returnKeyType="search"
         />
-      </View>
+        <View style={{ height: 10 }} />
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 100 }}>
         {notes.length === 0 ? (
-          <Card style={{ marginTop: 8 }}>
+          <Card>
             <EmptyState
               icon="create-outline"
               title={search ? "No matches" : "No notes yet"}
@@ -77,10 +66,10 @@ export default function NotesScreen() {
 
         {pinned.length > 0 ? (
           <>
-            <SectionTitle>Pinned</SectionTitle>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
+            <SectionHeading title="Pinned" />
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
               {pinned.map((n) => (
-                <NoteCard key={n.id} note={n} palette={palette} dark={dark} onPress={() => setEditor({ open: true, id: n.id })} />
+                <NoteCard key={n.id} note={n} palette={palette} onPress={() => setEditor({ open: true, id: n.id })} />
               ))}
             </View>
           </>
@@ -88,17 +77,17 @@ export default function NotesScreen() {
 
         {rest.length > 0 ? (
           <>
-            <SectionTitle>{pinned.length > 0 ? "Others" : "All notes"}</SectionTitle>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
+            <SectionHeading title={pinned.length > 0 ? "Others" : "All notes"} />
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
               {rest.map((n) => (
-                <NoteCard key={n.id} note={n} palette={palette} dark={dark} onPress={() => setEditor({ open: true, id: n.id })} />
+                <NoteCard key={n.id} note={n} palette={palette} onPress={() => setEditor({ open: true, id: n.id })} />
               ))}
             </View>
           </>
         ) : null}
       </ScrollView>
 
-      <Fab onPress={() => setEditor({ open: true, id: null })} icon="create" />
+      <Fab onPress={() => setEditor({ open: true, id: null })} icon="create" bottom={40} />
       <NoteEditorSheet visible={editor.open} noteId={editor.id} onClose={() => setEditor({ open: false, id: null })} />
     </View>
   );
@@ -107,12 +96,10 @@ export default function NotesScreen() {
 function NoteCard({
   note,
   palette,
-  dark,
   onPress,
 }: {
   note: data.Note;
-  palette: ReturnType<typeof usePalette>["palette"];
-  dark: boolean;
+  palette: Palette;
   onPress: () => void;
 }) {
   const colors = NOTE_COLORS[note.color] ?? NOTE_COLORS.default;
@@ -121,25 +108,24 @@ function NoteCard({
       onPress={onPress}
       style={({ pressed }) => [
         {
-          width: "48.5%",
-          minHeight: 120,
-          borderRadius: 16,
+          width: "48.4%",
+          minHeight: 118,
+          borderRadius: 18,
           borderWidth: 1,
           borderColor: colors.border || palette.border,
           backgroundColor: colors.bg === "transparent" ? palette.card : colors.bg,
           padding: 13,
-          marginBottom: 12,
         },
         pressed && { opacity: 0.8 },
       ]}
     >
       <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6 }}>
-        <Text style={{ fontSize: 14.5, fontWeight: "700", color: palette.text, flex: 1 }} numberOfLines={1}>
+        <Text style={{ fontSize: 14, fontWeight: "700", color: palette.text, flex: 1 }} numberOfLines={1}>
           {note.title}
         </Text>
         {note.pinned ? <Ionicons name="pin" size={13} color={palette.warn} /> : null}
       </View>
-      <Text style={{ fontSize: 12.5, color: palette.textDim, lineHeight: 18 }} numberOfLines={5}>
+      <Text style={{ fontSize: 12, color: palette.textDim, lineHeight: 17 }} numberOfLines={5}>
         {note.content || "Empty note"}
       </Text>
       <Text style={{ fontSize: 10.5, color: palette.textFaint, marginTop: 8 }}>
@@ -177,7 +163,15 @@ function NoteEditorSheet({ visible, noteId, onClose }: { visible: boolean; noteI
     setPinned(false);
   }, [visible, noteId, loaded]);
 
+  // X / backdrop dismiss DISCARDS changes (the web dialog behaves the same);
+  // the explicit Save button persists.
+  const discard = () => onClose();
+
   const save = () => {
+    if (!title.trim() && !content.trim()) {
+      onClose();
+      return;
+    }
     data.saveNote(noteId, {
       title: title.trim() || "Untitled note",
       content,
@@ -186,13 +180,14 @@ function NoteEditorSheet({ visible, noteId, onClose }: { visible: boolean; noteI
     });
     bumpData();
     scheduleSync();
+    toast.success(noteId ? "Note updated" : "Note saved");
     onClose();
   };
 
   return (
     <Sheet
       visible={visible}
-      onClose={save}
+      onClose={discard}
       title={noteId ? "Edit note" : "New note"}
       footer={
         <View style={{ flexDirection: "row", gap: 10 }}>
@@ -206,6 +201,7 @@ function NoteEditorSheet({ visible, noteId, onClose }: { visible: boolean; noteI
                 data.softDelete("notes", noteId);
                 bumpData();
                 scheduleSync();
+                toast.success("Note deleted");
                 onClose();
               }}
               style={{ flex: 1 }}
@@ -215,7 +211,7 @@ function NoteEditorSheet({ visible, noteId, onClose }: { visible: boolean; noteI
         </View>
       }
     >
-      <Input value={title} onChangeText={setTitle} placeholder="Title" autoFocus={!noteId} onSubmitEditing={save} />
+      <Input value={title} onChangeText={setTitle} placeholder="Title" autoFocus={!noteId} onSubmitEditing={save} returnKeyType="done" />
 
       <FieldLabel>Content</FieldLabel>
       <Input

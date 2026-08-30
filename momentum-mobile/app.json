@@ -19,7 +19,11 @@
     },
     "android": {
       "package": "com.momentum.app",
-      "permissions": ["POST_NOTIFICATIONS", "VIBRATE", "SCHEDULE_EXACT_ALARM"],
+      "permissions": [
+        "POST_NOTIFICATIONS",
+        "VIBRATE",
+        "SCHEDULE_EXACT_ALARM"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#10131c"
@@ -32,6 +36,11 @@
           "color": "#2dd4a8"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "474ff212-198d-4038-ba89-96f85d8d4275"
+      }
+    }
   }
 }
