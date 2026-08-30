@@ -22,6 +22,7 @@ import {
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import * as SplashScreen from "expo-splash-screen";
+import * as Font from "expo-font";
 import * as Network from "expo-network";
 
 import { useApp } from "./src/store";
@@ -44,6 +45,12 @@ import SearchScreen from "./src/screens/SearchScreen";
 import { scheduleDailyReminder, syncDataReminders } from "./src/notifications";
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
+
+// Pre-load the Ionicons font BEFORE rendering anything. @expo/vector-icons
+// renders an empty <Text/> for every icon until its font finishes loading —
+// gating the app on the font guarantees icons are visible from the very
+// first frame (no pop-in, no blank icons on slower devices).
+const ICON_FONTS = { ...Ionicons.font };
 
 const Stack = createNativeStackNavigator<StackParamList>();
 const Tabs = createBottomTabNavigator();
@@ -126,6 +133,9 @@ function TopBar({ onBell }: { onBell: () => void }) {
   const auth = useApp((s) => s.auth);
   const setQuickAddOpen = useApp((s) => s.setQuickAddOpen);
   return (
+    // The ONLY place that applies the top safe-area inset for the main shell —
+    // the header background extends under the (translucent) status bar and the
+    // row sits right below it, flush at the top of the screen like the web app.
     <SafeAreaView
       edges={["top"]}
       style={{
@@ -423,15 +433,19 @@ function Root() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [bellOpen, setBellOpen] = useState(false);
 
+  // Icon fonts first — see ICON_FONTS note above.
+  const [fontsLoaded] = Font.useFonts(ICON_FONTS);
+  const ready = hydrated && fontsLoaded;
+
   useEffect(() => {
     void hydrate();
   }, [hydrate]);
 
   useEffect(() => {
-    if (hydrated) {
+    if (ready) {
       SplashScreen.hideAsync().catch(() => undefined);
     }
-  }, [hydrated]);
+  }, [ready]);
 
   // Connectivity tracking + auto-sync on regain.
   useEffect(() => {
@@ -521,7 +535,7 @@ function Root() {
         },
       };
 
-  if (!hydrated) {
+  if (!ready) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: palette.bg }}>
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
@@ -549,8 +563,11 @@ function Root() {
     );
   }
 
+  // NOTE: no "top" edge here — TopBar applies the top inset for the main
+  // shell and StackHeader does it for pushed screens. Applying it here too
+  // would double-pad the header and push it down (the bug this fixes).
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: palette.bg }} edges={["left", "right", "top"]}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: palette.bg }} edges={["left", "right"]}>
       <StatusBar style={dark ? "light" : "dark"} />
       <View style={{ flex: 1 }}>
         <NavigationContainer ref={navigationRef} theme={navTheme}>

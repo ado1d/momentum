@@ -381,7 +381,7 @@ export default function SettingsScreen() {
       </Card>
 
       <Text style={{ textAlign: "center", color: palette.textFaint, fontSize: 12, marginTop: 20, marginBottom: 8 }}>
-        Momentum v1.2.0 · offline-first · your data, your device
+        Momentum v1.2.1 · offline-first · your data, your device
       </Text>
       </ScrollView>
     </View>

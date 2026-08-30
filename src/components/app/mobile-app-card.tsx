@@ -211,8 +211,9 @@ export function MobileAppCard() {
           <p className="mt-0.5 text-xs text-muted-foreground">
             The complete Momentum app as an offline-first Android project — build the APK
             yourself in VS Code. Google sign-in + two-way sync with this account included.
-            <span className="font-medium text-foreground"> v1.2: note tags + reading views,
-            automatic routine/habit/task reminders, your Google photo & name.</span>
+            <span className="font-medium text-foreground"> v1.2.1: header sits flush at the
+            top, bulletproof icon rendering + native library fixes. v1.2: note tags + reading
+            views, automatic routine/habit/task reminders, your Google photo & name.</span>
           </p>
           <ol className="mt-2 space-y-1 text-xs text-muted-foreground">
             <li>1 — Download the ZIP and unzip it</li>

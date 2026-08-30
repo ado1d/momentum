@@ -1,10 +1,23 @@
-# Momentum for Android 📱 (v1.2 — tags, reading views & automatic reminders)
+# Momentum for Android 📱 (v1.2.1 — header & icon rendering fix)
 
 The full Momentum productivity app as a **native Android app** — built with Expo (React Native).
 It works **100% offline** (everything is stored in the phone's local SQLite database) and can
 **sign in with Google** to sync with your Momentum web account.
 
-> **Upgrading from v1.1?** This release adds what was missing:
+> **Upgrading from v1.2?** This release fixes what you reported:
+> - **Header sits flush at the top** — the app now draws under the status bar (translucent,
+>   like the web app) and the safe-area inset is applied exactly once, so the header is no
+>   longer pushed down.
+> - **Icons now render reliably** — every icon (tab bar, dashboard, header, sheets) is drawn
+>   from a **pre-loaded icon font**: the app waits for the icon font before rendering, so
+>   icons can never come up blank.
+> - **Native library versions aligned** — `react-native-screens` was on an unsupported
+>   version (4.10) for this React Native release; it is now on the version Expo expects
+>   (4.4), which fixes device-only rendering glitches (missing icons/UI elements).
+>
+> Install the new APK **over** the old one (same package name) — your existing data stays.
+>
+> Everything from v1.2 is still there:
 > - **Note tags** — tags show on note cards, filter chips (#tag with counts) under search, and
 >   the note editor has a Tag field with suggestions. Search also matches tags now.
 > - **Reading views** — tapping a note (or a diary entry) opens a beautiful READ view first
@@ -16,8 +29,6 @@ It works **100% offline** (everything is stored in the phone's local SQLite data
 > - **Your name & photo** — the top-bar avatar shows your Google profile picture (tappable →
 >   Settings), the dashboard greets you by name, and the “Ayman+Chowdhury” `+` bug is fixed.
 > - **Developer contact card** in Settings — Ayman Chowdhury, email & GitHub.
->
-> Install the new APK **over** the old one (same package name) — your existing data stays.
 
 Same features as the web app:
 

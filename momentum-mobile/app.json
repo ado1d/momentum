@@ -2,12 +2,15 @@
   "expo": {
     "name": "Momentum",
     "slug": "momentum",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "momentum",
     "userInterfaceStyle": "automatic",
     "backgroundColor": "#10131c",
+    "androidStatusBar": {
+      "translucent": true
+    },
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",

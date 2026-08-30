@@ -17,6 +17,7 @@ import {
   View,
   useColorScheme,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Circle } from "react-native-svg";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
@@ -87,7 +88,9 @@ export function ViewHeader({
   );
 }
 
-/** Header for stack-pushed screens: back chevron + title/subtitle + actions. */
+/** Header for stack-pushed screens: back chevron + title/subtitle + actions.
+ *  Applies the top safe-area inset (status bar) — pushed screens render
+ *  directly under the translucent status bar. */
 export function StackHeader({
   title,
   subtitle,
@@ -98,11 +101,12 @@ export function StackHeader({
   right?: ReactNode;
 }) {
   const { palette } = usePalette();
+  const insets = useSafeAreaInsets();
   return (
     <View
       style={{
         paddingHorizontal: 16,
-        paddingTop: 8,
+        paddingTop: insets.top + 8,
         paddingBottom: 10,
         flexDirection: "row",
         alignItems: "center",

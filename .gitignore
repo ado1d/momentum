@@ -84,3 +84,9 @@ prisma/schema.local.prisma
 
 # mobile app fix working dir (test env with node_modules)
 /android-fix/
+
+# momentum: mobile web-test harness (browser QA only — never ship or commit)
+momentum-mobile/shims/
+momentum-mobile/metro.config.js
+momentum-mobile/src/driver.web.ts
+momentum-mobile/node_modules/
