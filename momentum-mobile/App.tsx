@@ -5,7 +5,12 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { StatusBar } from "expo-status-bar";
-import { NavigationContainer, createNavigationContainerRef, DefaultTheme, DarkTheme } from "@react-navigation/native";
+import {
+  NavigationContainer,
+  createNavigationContainerRef,
+  DefaultTheme,
+  DarkTheme,
+} from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
@@ -20,7 +25,11 @@ import {
   View,
   useColorScheme,
 } from "react-native";
-import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  SafeAreaProvider,
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import * as SplashScreen from "expo-splash-screen";
 import * as Font from "expo-font";
 import * as Network from "expo-network";
@@ -46,12 +55,6 @@ import { scheduleDailyReminder, syncDataReminders } from "./src/notifications";
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
-// Pre-load the Ionicons font BEFORE rendering anything. @expo/vector-icons
-// renders an empty <Text/> for every icon until its font finishes loading —
-// gating the app on the font guarantees icons are visible from the very
-// first frame (no pop-in, no blank icons on slower devices).
-const ICON_FONTS = { ...Ionicons.font };
-
 const Stack = createNativeStackNavigator<StackParamList>();
 const Tabs = createBottomTabNavigator();
 
@@ -75,11 +78,41 @@ const MORE_ITEMS: {
   route: keyof StackParamList;
   color: string;
 }[] = [
-  { icon: "timer-outline", label: "Focus", desc: "Pomodoro deep-work timer", route: "Focus", color: "#2dd4bf" },
-  { icon: "stats-chart-outline", label: "Insights", desc: "Trends, streaks & analytics", route: "Insights", color: "#34d399" },
-  { icon: "create-outline", label: "Notes", desc: "Quick capture & ideas", route: "Notes", color: "#a78bfa" },
-  { icon: "book-outline", label: "Diary", desc: "Daily journal & mood", route: "Diary", color: "#fb7185" },
-  { icon: "settings-outline", label: "Settings", desc: "Preferences, sync & export", route: "Settings", color: "#fbbf24" },
+  {
+    icon: "timer-outline",
+    label: "Focus",
+    desc: "Pomodoro deep-work timer",
+    route: "Focus",
+    color: "#2dd4bf",
+  },
+  {
+    icon: "stats-chart-outline",
+    label: "Insights",
+    desc: "Trends, streaks & analytics",
+    route: "Insights",
+    color: "#34d399",
+  },
+  {
+    icon: "create-outline",
+    label: "Notes",
+    desc: "Quick capture & ideas",
+    route: "Notes",
+    color: "#a78bfa",
+  },
+  {
+    icon: "book-outline",
+    label: "Diary",
+    desc: "Daily journal & mood",
+    route: "Diary",
+    color: "#fb7185",
+  },
+  {
+    icon: "settings-outline",
+    label: "Settings",
+    desc: "Preferences, sync & export",
+    route: "Settings",
+    color: "#fbbf24",
+  },
 ];
 
 // ── Brand (web: Zap logo + "Momentum / Productivity companion") ──
@@ -106,7 +139,14 @@ function Brand() {
         <Ionicons name="flash" size={19} color={palette.onPrimary} />
       </View>
       <View>
-        <Text style={{ color: palette.text, fontSize: 16, fontWeight: "800", letterSpacing: -0.3 }}>
+        <Text
+          style={{
+            color: palette.text,
+            fontSize: 16,
+            fontWeight: "800",
+            letterSpacing: -0.3,
+          }}
+        >
           Momentum
         </Text>
         <Text
@@ -162,8 +202,16 @@ function TopBar({ onBell }: { onBell: () => void }) {
           >
             <Ionicons name="search" size={20} color={palette.textDim} />
           </Pressable>
-          <Pressable onPress={onBell} hitSlop={6} style={{ padding: 8, borderRadius: 12 }}>
-            <Ionicons name="notifications-outline" size={20} color={palette.textDim} />
+          <Pressable
+            onPress={onBell}
+            hitSlop={6}
+            style={{ padding: 8, borderRadius: 12 }}
+          >
+            <Ionicons
+              name="notifications-outline"
+              size={20}
+              color={palette.textDim}
+            />
           </Pressable>
           <Pressable
             onPress={() => setQuickAddOpen(true)}
@@ -193,7 +241,13 @@ function TopBar({ onBell }: { onBell: () => void }) {
             hitSlop={6}
             style={{ marginLeft: 6 }}
           >
-            <UserAvatar uri={auth?.image} name={auth?.name} email={auth?.email} size={34} borderRadius={999} />
+            <UserAvatar
+              uri={auth?.image}
+              name={auth?.name}
+              email={auth?.email}
+              size={34}
+              borderRadius={999}
+            />
           </Pressable>
         </View>
       </View>
@@ -211,16 +265,68 @@ type TabParamList = {
   MoreTab: undefined;
 };
 
-const TAB_ITEMS: { name: keyof TabParamList; label: string; icon: keyof typeof Ionicons.glyphMap; component: React.ComponentType }[] = [
-  { name: "Dashboard", label: "Dashboard", icon: "grid-outline", component: DashboardScreen },
-  { name: "Tasks", label: "Tasks", icon: "list-outline", component: TasksScreen },
-  { name: "Routine", label: "Routine", icon: "repeat-outline", component: RoutineScreen },
-  { name: "Goals", label: "Goals", icon: "flag-outline", component: GoalsScreen },
+const TAB_ITEMS: {
+  name: keyof TabParamList;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  component: React.ComponentType;
+}[] = [
+  {
+    name: "Dashboard",
+    label: "Dashboard",
+    icon: "grid-outline",
+    component: DashboardScreen,
+  },
+  {
+    name: "Tasks",
+    label: "Tasks",
+    icon: "list-outline",
+    component: TasksScreen,
+  },
+  {
+    name: "Routine",
+    label: "Routine",
+    icon: "repeat-outline",
+    component: RoutineScreen,
+  },
+  {
+    name: "Goals",
+    label: "Goals",
+    icon: "flag-outline",
+    component: GoalsScreen,
+  },
 ];
 
 function MainTabs({ onMore }: { onMore: () => void }) {
   const { palette } = usePalette();
   const insets = useSafeAreaInsets();
+
+  const renderTabIcon = (
+    icon: keyof typeof Ionicons.glyphMap,
+    color: string,
+    focused: boolean,
+  ) => (
+    <View
+      style={{
+        width: 34,
+        height: 28,
+        borderRadius: 999,
+        backgroundColor: focused ? palette.primary : "transparent",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <Ionicons
+        name={icon}
+        size={19}
+        color={focused ? palette.onPrimary : color}
+        style={{
+          includeFontPadding: false,
+        }}
+      />
+    </View>
+  );
+
   return (
     <Tabs.Navigator
       screenOptions={{
@@ -234,6 +340,11 @@ function MainTabs({ onMore }: { onMore: () => void }) {
           paddingTop: 6,
         },
         tabBarLabelStyle: { fontSize: 10, fontWeight: "700", marginTop: 1 },
+        tabBarItemStyle: {
+          alignItems: "center",
+          justifyContent: "center",
+          paddingVertical: 2,
+        },
       }}
     >
       {TAB_ITEMS.map((t) => (
@@ -243,20 +354,8 @@ function MainTabs({ onMore }: { onMore: () => void }) {
           component={t.component}
           options={{
             title: t.label,
-            tabBarIcon: ({ color, focused }) => (
-              <View
-                style={{
-                  height: 28,
-                  paddingHorizontal: 16,
-                  borderRadius: 999,
-                  backgroundColor: focused ? palette.primary : "transparent",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Ionicons name={t.icon} size={19} color={focused ? palette.onPrimary : color} />
-              </View>
-            ),
+            tabBarIcon: ({ color, focused }) =>
+              renderTabIcon(t.icon, color, focused),
           }}
         />
       ))}
@@ -265,20 +364,8 @@ function MainTabs({ onMore }: { onMore: () => void }) {
         component={View}
         options={{
           title: "More",
-          tabBarIcon: ({ color, focused }) => (
-            <View
-              style={{
-                height: 28,
-                paddingHorizontal: 16,
-                borderRadius: 999,
-                backgroundColor: focused ? palette.primary : "transparent",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Ionicons name="menu" size={19} color={focused ? palette.onPrimary : color} />
-            </View>
-          ),
+          tabBarIcon: ({ color, focused }) =>
+            renderTabIcon("menu", color, focused),
         }}
         listeners={{
           tabPress: (e) => {
@@ -305,9 +392,24 @@ function MoreSheet({
   const { palette, dark } = usePalette();
   const setTheme = useApp((s) => s.setTheme);
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose} transparent statusBarTranslucent>
-      <View style={{ flex: 1, backgroundColor: "rgba(4,6,12,0.6)", justifyContent: "flex-end" }}>
-        <Pressable style={{ position: "absolute", top: 0, bottom: 0, left: 0, right: 0 }} onPress={onClose} />
+    <Modal
+      visible={visible}
+      animationType="slide"
+      onRequestClose={onClose}
+      transparent
+      statusBarTranslucent
+    >
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: "rgba(4,6,12,0.6)",
+          justifyContent: "flex-end",
+        }}
+      >
+        <Pressable
+          style={{ position: "absolute", top: 0, bottom: 0, left: 0, right: 0 }}
+          onPress={onClose}
+        />
         <View
           style={{
             backgroundColor: palette.bg,
@@ -332,7 +434,14 @@ function MoreSheet({
               marginBottom: 10,
             }}
           />
-          <Text style={{ color: palette.text, fontSize: 16, fontWeight: "800", marginBottom: 12 }}>
+          <Text
+            style={{
+              color: palette.text,
+              fontSize: 16,
+              fontWeight: "800",
+              marginBottom: 12,
+            }}
+          >
             More
           </Text>
           {MORE_ITEMS.map((it) => (
@@ -370,10 +479,26 @@ function MoreSheet({
                 <Ionicons name={it.icon} size={19} color={it.color} />
               </View>
               <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={{ color: palette.text, fontSize: 14.5, fontWeight: "700" }}>{it.label}</Text>
-                <Text style={{ color: palette.textDim, fontSize: 12, marginTop: 1 }}>{it.desc}</Text>
+                <Text
+                  style={{
+                    color: palette.text,
+                    fontSize: 14.5,
+                    fontWeight: "700",
+                  }}
+                >
+                  {it.label}
+                </Text>
+                <Text
+                  style={{ color: palette.textDim, fontSize: 12, marginTop: 1 }}
+                >
+                  {it.desc}
+                </Text>
               </View>
-              <Ionicons name="chevron-forward" size={16} color={palette.textFaint} />
+              <Ionicons
+                name="chevron-forward"
+                size={16}
+                color={palette.textFaint}
+              />
             </Pressable>
           ))}
           <View
@@ -390,7 +515,11 @@ function MoreSheet({
               marginTop: 2,
             }}
           >
-            <Text style={{ color: palette.text, fontSize: 14, fontWeight: "600" }}>Appearance</Text>
+            <Text
+              style={{ color: palette.text, fontSize: 14, fontWeight: "600" }}
+            >
+              Appearance
+            </Text>
             <Pressable
               onPress={() => setTheme(dark ? "light" : "dark")}
               style={({ pressed }) => [
@@ -408,8 +537,18 @@ function MoreSheet({
                 pressed && { opacity: 0.7 },
               ]}
             >
-              <Ionicons name={dark ? "sunny" : "moon"} size={14} color={palette.primary} />
-              <Text style={{ color: palette.primary, fontSize: 12.5, fontWeight: "700" }}>
+              <Ionicons
+                name={dark ? "sunny" : "moon"}
+                size={14}
+                color={palette.primary}
+              />
+              <Text
+                style={{
+                  color: palette.primary,
+                  fontSize: 12.5,
+                  fontWeight: "700",
+                }}
+              >
                 {dark ? "Light" : "Dark"}
               </Text>
             </Pressable>
@@ -433,9 +572,26 @@ function Root() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [bellOpen, setBellOpen] = useState(false);
 
-  // Icon fonts first — see ICON_FONTS note above.
-  const [fontsLoaded] = Font.useFonts(ICON_FONTS);
-  const ready = hydrated && fontsLoaded;
+  const [fontReady, setFontReady] = useState(false);
+  const ready = hydrated && fontReady;
+
+  useEffect(() => {
+    let mounted = true;
+
+    Font.loadAsync({
+      Ionicons: require("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/Ionicons.ttf"),
+    })
+      .then(() => {
+        if (mounted) setFontReady(true);
+      })
+      .catch(() => {
+        if (mounted) setFontReady(true);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     void hydrate();
@@ -538,7 +694,9 @@ function Root() {
   if (!ready) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: palette.bg }}>
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+        <View
+          style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
+        >
           <View
             style={{
               width: 64,
@@ -552,10 +710,24 @@ function Root() {
           >
             <Ionicons name="flash" size={32} color={palette.onPrimary} />
           </View>
-          <Text style={{ color: palette.text, fontSize: 26, fontWeight: "800", letterSpacing: -0.5 }}>
+          <Text
+            style={{
+              color: palette.text,
+              fontSize: 26,
+              fontWeight: "800",
+              letterSpacing: -0.5,
+            }}
+          >
             Momentum
           </Text>
-          <Text style={{ color: palette.textDim, fontSize: 12, marginTop: 4, letterSpacing: 1.2 }}>
+          <Text
+            style={{
+              color: palette.textDim,
+              fontSize: 12,
+              marginTop: 4,
+              letterSpacing: 1.2,
+            }}
+          >
             PRODUCTIVITY COMPANION
           </Text>
         </View>
@@ -567,7 +739,10 @@ function Root() {
   // shell and StackHeader does it for pushed screens. Applying it here too
   // would double-pad the header and push it down (the bug this fixes).
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: palette.bg }} edges={["left", "right"]}>
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: palette.bg }}
+      edges={["left", "right"]}
+    >
       <StatusBar style={dark ? "light" : "dark"} />
       <View style={{ flex: 1 }}>
         <NavigationContainer ref={navigationRef} theme={navTheme}>
@@ -575,7 +750,12 @@ function Root() {
             style={{ flex: 1 }}
             behavior={Platform.OS === "ios" ? "padding" : undefined}
           >
-            <Stack.Navigator screenOptions={{ headerShown: false, animation: "slide_from_right" }}>
+            <Stack.Navigator
+              screenOptions={{
+                headerShown: false,
+                animation: "slide_from_right",
+              }}
+            >
               <Stack.Screen name="Main">
                 {() => (
                   <View style={{ flex: 1 }}>

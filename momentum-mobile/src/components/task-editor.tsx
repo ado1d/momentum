@@ -15,6 +15,7 @@ import {
   FieldLabel,
   IconBtn,
   Input,
+  RichTextEditor,
   Sheet,
   usePalette,
 } from "./ui";
@@ -49,7 +50,9 @@ export function TaskEditorSheet({
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [subtasks, setSubtasks] = useState<data.Subtask[]>([]);
   const [newSubtask, setNewSubtask] = useState("");
-  const [loadedId, setLoadedId] = useState<string | null | undefined>(undefined);
+  const [loadedId, setLoadedId] = useState<string | null | undefined>(
+    undefined,
+  );
 
   useEffect(() => {
     if (!visible) return;
@@ -66,11 +69,18 @@ export function TaskEditorSheet({
         setRepeat(t.repeat);
         const d = t.dueDate ? new Date(t.dueDate) : null;
         setDueDate(d);
-        setHasTime(!!(t.dueDate && new Date(t.dueDate).getHours() + new Date(t.dueDate).getMinutes() > 0));
+        setHasTime(
+          !!(
+            t.dueDate &&
+            new Date(t.dueDate).getHours() + new Date(t.dueDate).getMinutes() >
+              0
+          ),
+        );
         // Reverse-engineer the offset from the stored reminderAt.
         if (t.reminderAt && t.dueDate) {
           const off = Math.round(
-            (new Date(t.dueDate).getTime() - new Date(t.reminderAt).getTime()) / 60000,
+            (new Date(t.dueDate).getTime() - new Date(t.reminderAt).getTime()) /
+              60000,
           );
           setReminderOffset(off === 0 || off === 15 || off === 60 ? off : 0);
         } else {
@@ -111,7 +121,9 @@ export function TaskEditorSheet({
     }
     let reminderISO: string | null = null;
     if (dateISO && hasTime && reminderOffset !== null) {
-      reminderISO = new Date(new Date(dateISO).getTime() - reminderOffset * 60000).toISOString();
+      reminderISO = new Date(
+        new Date(dateISO).getTime() - reminderOffset * 60000,
+      ).toISOString();
     }
     data.saveTodo(todoId, {
       title: trimmed,
@@ -125,7 +137,8 @@ export function TaskEditorSheet({
     bumpData();
     scheduleSync();
     toast.success(todoId ? "Task updated" : "Task added");
-    if (reminderISO) toast.info(`⏰ Reminder set for ${formatTime(reminderISO)}`);
+    if (reminderISO)
+      toast.info(`⏰ Reminder set for ${formatTime(reminderISO)}`);
     onClose();
   };
 
@@ -155,7 +168,12 @@ export function TaskEditorSheet({
               style={{ flex: 1 }}
             />
           ) : null}
-          <Btn label={todoId ? "Save changes" : "Add task"} icon="checkmark" onPress={save} style={{ flex: 2 }} />
+          <Btn
+            label={todoId ? "Save changes" : "Add task"}
+            icon="checkmark"
+            onPress={save}
+            style={{ flex: 2 }}
+          />
         </View>
       }
     >
@@ -168,7 +186,12 @@ export function TaskEditorSheet({
       />
 
       <FieldLabel>Notes</FieldLabel>
-      <Input value={notes} onChangeText={setNotes} placeholder="Details…" multiline style={{ minHeight: 90 }} />
+      <RichTextEditor
+        value={notes}
+        onChangeText={setNotes}
+        placeholder="Details…"
+        minHeight={90}
+      />
 
       <FieldLabel>Priority</FieldLabel>
       <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
@@ -186,12 +209,19 @@ export function TaskEditorSheet({
       <FieldLabel>Category</FieldLabel>
       <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
         {CATEGORIES.map((c) => (
-          <Chip key={c} label={titleize(c)} active={category === c} onPress={() => setCategory(c)} />
+          <Chip
+            key={c}
+            label={titleize(c)}
+            active={category === c}
+            onPress={() => setCategory(c)}
+          />
         ))}
       </View>
 
       <FieldLabel>Due date</FieldLabel>
-      <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
+      <View
+        style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}
+      >
         <Chip
           label={dueLabel}
           active={!!dueDate}
@@ -204,7 +234,14 @@ export function TaskEditorSheet({
               active={hasTime}
               onPress={() => setShowTimePicker(true)}
             />
-            <Chip label="Clear" onPress={() => { setDueDate(null); setHasTime(false); setReminderOffset(null); }} />
+            <Chip
+              label="Clear"
+              onPress={() => {
+                setDueDate(null);
+                setHasTime(false);
+                setReminderOffset(null);
+              }}
+            />
           </>
         ) : null}
       </View>
@@ -213,10 +250,26 @@ export function TaskEditorSheet({
         <>
           <FieldLabel>Reminder</FieldLabel>
           <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
-            <Chip label="At time" active={reminderOffset === 0} onPress={() => setReminderOffset(0)} />
-            <Chip label="15 min before" active={reminderOffset === 15} onPress={() => setReminderOffset(15)} />
-            <Chip label="1 hour before" active={reminderOffset === 60} onPress={() => setReminderOffset(60)} />
-            <Chip label="No reminder" active={reminderOffset === null} onPress={() => setReminderOffset(null)} />
+            <Chip
+              label="At time"
+              active={reminderOffset === 0}
+              onPress={() => setReminderOffset(0)}
+            />
+            <Chip
+              label="15 min before"
+              active={reminderOffset === 15}
+              onPress={() => setReminderOffset(15)}
+            />
+            <Chip
+              label="1 hour before"
+              active={reminderOffset === 60}
+              onPress={() => setReminderOffset(60)}
+            />
+            <Chip
+              label="No reminder"
+              active={reminderOffset === null}
+              onPress={() => setReminderOffset(null)}
+            />
           </View>
         </>
       ) : null}
@@ -258,13 +311,25 @@ export function TaskEditorSheet({
       <FieldLabel>Repeat</FieldLabel>
       <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
         {REPEATS.map((r) => (
-          <Chip key={r} label={r === "none" ? "Never" : titleize(r)} active={repeat === r} onPress={() => setRepeat(r)} />
+          <Chip
+            key={r}
+            label={r === "none" ? "Never" : titleize(r)}
+            active={repeat === r}
+            onPress={() => setRepeat(r)}
+          />
         ))}
       </View>
 
       <FieldLabel>Checklist</FieldLabel>
       {subtasks.map((s) => (
-        <View key={s.id} style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
+        <View
+          key={s.id}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            marginBottom: 8,
+          }}
+        >
           <Pressable
             onPress={() => {
               data.setSubtaskCompleted(s.id, !s.completed);
@@ -282,9 +347,17 @@ export function TaskEditorSheet({
               marginRight: 10,
             }}
           >
-            {s.completed ? <Ionicons name="checkmark" size={15} color={palette.onPrimary} /> : null}
+            {s.completed ? (
+              <Ionicons name="checkmark" size={15} color={palette.onPrimary} />
+            ) : null}
           </Pressable>
-          <Text style={{ flex: 1, color: s.completed ? palette.textFaint : palette.text, textDecorationLine: s.completed ? "line-through" : "none" }}>
+          <Text
+            style={{
+              flex: 1,
+              color: s.completed ? palette.textFaint : palette.text,
+              textDecorationLine: s.completed ? "line-through" : "none",
+            }}
+          >
             {s.title}
           </Text>
           <IconBtn

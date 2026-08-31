@@ -1,34 +1,57 @@
-# Momentum for Android 📱 (v1.2.1 — header & icon rendering fix)
+# Momentum for Android 📱 (v1.3.0 — pro writing & reading upgrade)
 
 The full Momentum productivity app as a **native Android app** — built with Expo (React Native).
 It works **100% offline** (everything is stored in the phone's local SQLite database) and can
 **sign in with Google** to sync with your Momentum web account.
 
-> **Upgrading from v1.2?** This release fixes what you reported:
-> - **Header sits flush at the top** — the app now draws under the status bar (translucent,
->   like the web app) and the safe-area inset is applied exactly once, so the header is no
->   longer pushed down.
-> - **Icons now render reliably** — every icon (tab bar, dashboard, header, sheets) is drawn
->   from a **pre-loaded icon font**: the app waits for the icon font before rendering, so
->   icons can never come up blank.
-> - **Native library versions aligned** — `react-native-screens` was on an unsupported
->   version (4.10) for this React Native release; it is now on the version Expo expects
->   (4.4), which fixes device-only rendering glitches (missing icons/UI elements).
+> **Upgrading from v1.2.1?** This release upgrades the two things you asked for —
+> **writing** and **viewing** — to web-app quality:
+>
+> ### ✍️ The writing section (Notes, Diary, task & goal notes, Quick Add)
+> - **Full formatting toolbar** attached to the editor — **undo/redo**, **B** bold,
+>   *I* italic, ~~S~~ strikethrough, **H1/H2/H3**, ❝ quote, `code block`,
+>   bullet list, 1. numbered list, ☑ **task list**, link, and **[[ ]] wiki-link**
+>   (in Notes) — all with **live active-state highlighting** so you always see
+>   what's applied at the cursor.
+> - **Tap-to-toggle** — tapping an active format REMOVES it (like the web editor).
+>   No selection? Tapping **B** bolds the word under the cursor (Telegram-style).
+> - **Smart Enter** — pressing Enter inside a list continues it automatically
+>   (`- ` → `- `, `1.` → `2.`, `- [ ]` → `- [ ]`). Press Enter on an empty
+>   item to exit the list — exactly like the web editor.
+> - **Undo & redo** with proper history (typing is coalesced, toolbar steps are atomic).
+> - **Word/character count** + a syntax hint under the editor, like the web dialog.
+> - **Link insert** pre-selects the URL so you can type or paste over it.
+>
+> ### 👁️ The reading/viewing experience
+> - **Full markdown rendering** in reading views: H1–H4 headings, bold, italic,
+>   ~~strikethrough~~, inline code, code fences, quotes, **nested lists**,
+>   **task lists with real checkboxes** (☐/☑, done items get struck through),
+>   **tappable [links](https://…)** that open an in-app browser, `<u>underline</u>`,
+>   rules, and clickable **[[wiki-links]]**.
+> - **Note cards show real formatted markdown** (bold headings, checkboxes, lists)
+>   instead of flat text — like the web app's previews, with a ~5-line clamp.
+> - Web-matching typography: airier paragraphs, sized headings, tighter code blocks.
+>
+> ### 🕵️ Hidden fixes & polish
+> - **Long-press any note card** → Pin / Unpin, Edit, **Export (.md)**, Delete
+>   (the web card's ⋯ menu, mobile-style). The card shows a small ⋯ hint.
+> - **Export a single note as Markdown** from the reader (share sheet) —
+>   same as the web app's export menu.
+> - **Unsaved-changes guard** — closing a note editor with edits now asks
+>   “Discard changes?” instead of silently throwing your writing away.
+> - **Clear (✕) buttons** in the Notes and global Search fields.
+> - **Cleaner previews everywhere** — search results and diary entry rows no
+>   longer show raw `**markdown**` syntax.
+> - **Bug fix:** "New note" after a previous note no longer shows the stale
+>   previous content.
+> - **Bug fix:** backup export/import used an outdated file-system API that
+>   would have failed on this Expo version — now fixed.
 >
 > Install the new APK **over** the old one (same package name) — your existing data stays.
 >
-> Everything from v1.2 is still there:
-> - **Note tags** — tags show on note cards, filter chips (#tag with counts) under search, and
->   the note editor has a Tag field with suggestions. Search also matches tags now.
-> - **Reading views** — tapping a note (or a diary entry) opens a beautiful READ view first
->   (color accent, tag + reading stats, markdown rendering, backlinks) with an explicit
->   **Edit** button — exactly like the web app, instead of dropping you into the editor.
-> - **Automatic reminders** — routine blocks with a time now remind you weekly on their days,
->   habits can have a daily reminder time, and tasks can remind you At time / 15 min / 1 hour
->   before. One toggle in Settings → Notifications, on by default.
-> - **Your name & photo** — the top-bar avatar shows your Google profile picture (tappable →
->   Settings), the dashboard greets you by name, and the “Ayman+Chowdhury” `+` bug is fixed.
-> - **Developer contact card** in Settings — Ayman Chowdhury, email & GitHub.
+> Everything from v1.2.1 is still there (flush header, reliable icon rendering,
+> note tags, reading views, automatic reminders, Google profile name & photo,
+> developer contact card in Settings).
 
 Same features as the web app:
 

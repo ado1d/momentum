@@ -9,7 +9,16 @@ import * as data from "./db";
 import { useApp, bumpData } from "./store";
 import { scheduleSync } from "./sync";
 import { toast } from "./toast";
-import { Btn, Chip, FieldLabel, Input, Segmented, Sheet, usePalette } from "./components/ui";
+import {
+  Btn,
+  Chip,
+  FieldLabel,
+  Input,
+  RichTextEditor,
+  Segmented,
+  Sheet,
+  usePalette,
+} from "./components/ui";
 import { MOODS } from "./theme";
 import { dayKey } from "./utils";
 
@@ -99,12 +108,29 @@ export function QuickAddSheet() {
       title="Quick add"
       footer={
         <View style={{ flexDirection: "row", gap: 10 }}>
-          <Btn label="Cancel" variant="ghost" onPress={close} style={{ flex: 1 }} />
           <Btn
-            label={tab === "task" ? "Add task" : tab === "note" ? "Save note" : "Save entry"}
+            label="Cancel"
+            variant="ghost"
+            onPress={close}
+            style={{ flex: 1 }}
+          />
+          <Btn
+            label={
+              tab === "task"
+                ? "Add task"
+                : tab === "note"
+                  ? "Save note"
+                  : "Save entry"
+            }
             icon="checkmark"
             disabled={!canSave}
-            onPress={tab === "task" ? createTask : tab === "note" ? createNote : saveDiary}
+            onPress={
+              tab === "task"
+                ? createTask
+                : tab === "note"
+                  ? createNote
+                  : saveDiary
+            }
             style={{ flex: 2 }}
           />
         </View>
@@ -122,11 +148,15 @@ export function QuickAddSheet() {
 
       {tab !== "diary" ? (
         <>
-          <FieldLabel>{tab === "task" ? "What needs doing?" : "Note title"}</FieldLabel>
+          <FieldLabel>
+            {tab === "task" ? "What needs doing?" : "Note title"}
+          </FieldLabel>
           <Input
             value={title}
             onChangeText={setTitle}
-            placeholder={tab === "task" ? "e.g. Finish the report" : "e.g. Book ideas"}
+            placeholder={
+              tab === "task" ? "e.g. Finish the report" : "e.g. Book ideas"
+            }
             autoFocus
             returnKeyType="done"
             onSubmitEditing={tab === "task" ? createTask : undefined}
@@ -139,7 +169,12 @@ export function QuickAddSheet() {
           <FieldLabel>Priority</FieldLabel>
           <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
             {PRIORITIES.map((p) => (
-              <Chip key={p} label={p[0].toUpperCase() + p.slice(1)} active={priority === p} onPress={() => setPriority(p)} />
+              <Chip
+                key={p}
+                label={p[0].toUpperCase() + p.slice(1)}
+                active={priority === p}
+                onPress={() => setPriority(p)}
+              />
             ))}
           </View>
 
@@ -148,7 +183,9 @@ export function QuickAddSheet() {
             {(["today", "tomorrow", "none"] as const).map((d) => (
               <Chip
                 key={d}
-                label={d === "none" ? "Someday" : d[0].toUpperCase() + d.slice(1)}
+                label={
+                  d === "none" ? "Someday" : d[0].toUpperCase() + d.slice(1)
+                }
                 active={due === d}
                 onPress={() => setDue(d)}
               />
@@ -172,12 +209,11 @@ export function QuickAddSheet() {
       {tab === "note" ? (
         <>
           <FieldLabel>Content</FieldLabel>
-          <Input
+          <RichTextEditor
             value={content}
             onChangeText={setContent}
             placeholder="Write freely…"
-            multiline
-            style={{ minHeight: 140 }}
+            minHeight={140}
           />
         </>
       ) : null}
@@ -185,7 +221,13 @@ export function QuickAddSheet() {
       {tab === "diary" ? (
         <>
           <FieldLabel>How was your day?</FieldLabel>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: "space-between",
+              marginBottom: 6,
+            }}
+          >
             {MOODS.map((m) => (
               <Pressable
                 key={m.key}
@@ -195,29 +237,41 @@ export function QuickAddSheet() {
                   height: 64,
                   borderRadius: 14,
                   borderWidth: 1.5,
-                  borderColor: mood === m.key ? palette.primary : palette.border,
-                  backgroundColor: mood === m.key ? palette.primarySoft : palette.card,
+                  borderColor:
+                    mood === m.key ? palette.primary : palette.border,
+                  backgroundColor:
+                    mood === m.key ? palette.primarySoft : palette.card,
                   alignItems: "center",
                   justifyContent: "center",
                 }}
               >
                 <Text style={{ fontSize: 24 }}>{m.emoji}</Text>
-                <Text style={{ fontSize: 10, color: palette.textDim, marginTop: 3 }}>{m.label}</Text>
+                <Text
+                  style={{ fontSize: 10, color: palette.textDim, marginTop: 3 }}
+                >
+                  {m.label}
+                </Text>
               </Pressable>
             ))}
           </View>
           <FieldLabel>Today's entry</FieldLabel>
-          <Input
+          <RichTextEditor
             value={content}
             onChangeText={setContent}
             placeholder="What happened today? What are you grateful for?"
-            multiline
-            style={{ minHeight: 140 }}
+            minHeight={140}
           />
         </>
       ) : null}
 
-      <View style={{ flexDirection: "row", alignItems: "center", marginTop: 16, gap: 6 }}>
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          marginTop: 16,
+          gap: 6,
+        }}
+      >
         <Ionicons name="flash-outline" size={13} color={palette.textFaint} />
         <Text style={{ color: palette.textFaint, fontSize: 11.5 }}>
           Everything saves on this device — syncs when you're signed in.

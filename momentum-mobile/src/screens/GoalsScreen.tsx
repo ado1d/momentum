@@ -18,6 +18,7 @@ import {
   FieldLabel,
   Input,
   OfflinePill,
+  RichTextEditor,
   Segmented,
   Sheet,
   usePalette,
@@ -62,8 +63,19 @@ export default function GoalsScreen() {
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }}
       >
         <View style={{ paddingTop: 8, paddingBottom: 12 }}>
-          <Text style={{ color: palette.text, fontSize: 23, fontWeight: "800", letterSpacing: -0.4 }}>Goals</Text>
-          <Text style={{ color: palette.textDim, fontSize: 13.5, marginTop: 3 }}>
+          <Text
+            style={{
+              color: palette.text,
+              fontSize: 23,
+              fontWeight: "800",
+              letterSpacing: -0.4,
+            }}
+          >
+            Goals
+          </Text>
+          <Text
+            style={{ color: palette.textDim, fontSize: 13.5, marginTop: 3 }}
+          >
             Daily learning goals, weekly targets, monthly ambitions
           </Text>
         </View>
@@ -344,12 +356,11 @@ function GoalEditorSheet({
       />
 
       <FieldLabel>Why this matters (optional)</FieldLabel>
-      <Input
+      <RichTextEditor
         value={description}
         onChangeText={setDescription}
         placeholder="Motivation…"
-        multiline
-        style={{ minHeight: 70 }}
+        minHeight={70}
       />
 
       <FieldLabel>Category</FieldLabel>

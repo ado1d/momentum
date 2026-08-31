@@ -8,6 +8,7 @@ import { useNavigation } from "@react-navigation/native";
 import * as data from "../db";
 import { useApp } from "../store";
 import { Input, StackHeader, usePalette } from "../components/ui";
+import { markdownToPlain } from "../components/mini-md";
 import { dayKey, relativeDay } from "../utils";
 
 export default function SearchScreen() {
@@ -42,6 +43,7 @@ export default function SearchScreen() {
         <Input
           value={q}
           onChangeText={setQ}
+          onClear={() => setQ("")}
           placeholder="Search everything…"
           autoFocus
           returnKeyType="search"
@@ -63,7 +65,7 @@ export default function SearchScreen() {
             palette={palette}
             icon="checkbox-outline"
             title={t.title}
-            sub={t.dueDate ? relativeDay(dayKey(t.dueDate)) : "No date"}
+            sub={t.notes ? markdownToPlain(t.notes).slice(0, 70) : t.dueDate ? relativeDay(dayKey(t.dueDate)) : "No date"}
             onPress={() => navigation.replace("Main", { screen: "Tasks" } as never)}
           />
         ))}
@@ -75,7 +77,7 @@ export default function SearchScreen() {
             palette={palette}
             icon="create-outline"
             title={n.title}
-            sub={n.content.slice(0, 60) || "Empty note"}
+            sub={n.content ? markdownToPlain(n.content).slice(0, 80) : "Empty note"}
             onPress={() => navigation.navigate("Notes")}
           />
         ))}
@@ -87,7 +89,7 @@ export default function SearchScreen() {
             palette={palette}
             icon="book-outline"
             title={j.title || "Journal entry"}
-            sub={`${relativeDay(j.date)} · ${j.content.slice(0, 60)}`}
+            sub={`${relativeDay(j.date)} · ${j.content ? markdownToPlain(j.content).slice(0, 70) : "—"}`}
             onPress={() => navigation.navigate("Diary")}
           />
         ))}
